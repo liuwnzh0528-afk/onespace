@@ -1,0 +1,47 @@
+version: 1
+name: order-system-dev
+allowedRepoRoots:
+  - /data/workspaces/order-system-dev/repos
+
+server:
+  bind: "127.0.0.1:18080"
+
+runtime:
+  type: docker-compose
+  projectName: order-system-dev
+
+ports:
+  appRange: "18080-18999"
+  debugRange: "40000-40999"
+
+services:
+  user-api:
+    language: go
+    repoPath: /data/workspaces/order-system-dev/repos/user-api
+    main: ./cmd/user-api
+    ports:
+      - name: http
+        container: 8080
+        host: 18081
+    health:
+      type: http
+      url: "http://127.0.0.1:18081/health"
+      timeoutSeconds: 30
+
+  order-api:
+    language: java-maven
+    repoPath: /data/workspaces/order-system-dev/repos/order-api
+    ports:
+      - name: http
+        container: 8080
+        host: 18082
+    health:
+      type: http
+      url: "http://127.0.0.1:18082/health"
+      timeoutSeconds: 30
+
+addons:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
