@@ -1,0 +1,177 @@
+package runtime
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+
+	"github.com/wnzhone/onespace/internal/domain"
+)
+
+func GenerateCompose(ws domain.Workspace) ([]byte, error) {
+	compose := map[string]interface{}{
+		"services": buildServices(ws),
+		"networks": map[string]interface{}{
+			ws.Runtime.Network: map[string]interface{}{
+				"external": false,
+			},
+		},
+	}
+
+	volumes := buildVolumes(ws)
+	if len(volumes) > 0 {
+		compose["volumes"] = volumes
+	}
+
+	return yaml.Marshal(compose)
+}
+
+func buildServices(ws domain.Workspace) map[string]interface{} {
+	services := make(map[string]interface{})
+
+	for name, svc := range ws.Services {
+		serviceDef := map[string]interface{}{
+			"image":       svc.Image,
+			"working_dir": svc.Workdir,
+			"command":     []string{"sleep", "infinity"},
+			"volumes":     []string{svc.RepoPath + ":" + svc.Workdir},
+			"networks":    []string{ws.Runtime.Network},
+		}
+
+		ports := buildPortMappings(svc)
+		if len(ports) > 0 {
+			serviceDef["ports"] = ports
+		}
+
+		env := buildServiceEnv(svc)
+		if len(env) > 0 {
+			serviceDef["environment"] = env
+		}
+
+		services[name] = serviceDef
+	}
+
+	for name, addon := range ws.Addons {
+		addonDef := map[string]interface{}{
+			"image":    addon.Image,
+			"networks": []string{ws.Runtime.Network},
+		}
+		if len(addon.Ports) > 0 {
+			addonDef["ports"] = addon.Ports
+		}
+		if len(addon.Env) > 0 {
+			addonDef["environment"] = addon.Env
+		}
+		services[name] = addonDef
+	}
+
+	return services
+}
+
+func buildPortMappings(svc domain.Service) []string {
+	var ports []string
+	for _, p := range svc.Ports {
+		ports = append(ports, fmt.Sprintf("%d:%d", p.Host, p.Container))
+	}
+	if svc.Debug.Port != 0 {
+		ports = append(ports, fmt.Sprintf("%d:%d", svc.Debug.Port, svc.Debug.Port))
+	}
+	return ports
+}
+
+func buildServiceEnv(svc domain.Service) map[string]string {
+	env := map[string]string{
+		"ONESPACE_STATE_DIR": svc.Workdir + "/.onespace",
+	}
+	return env
+}
+
+func buildVolumes(ws domain.Workspace) map[string]interface{} {
+	volumes := make(map[string]interface{})
+	for _, svc := range ws.Services {
+		switch svc.Language {
+		case "go":
+			volumes["go-cache-"+svc.Name] = map[string]interface{}{}
+		case "java-maven":
+			volumes["maven-cache-"+svc.Name] = map[string]interface{}{}
+		}
+	}
+	return volumes
+}
+
+type ComposeRuntime struct {
+	Runner CommandRunner
+}
+
+func (r *ComposeRuntime) Ensure(ctx context.Context, workspaceRoot string) error {
+	composeFile := filepath.Join(workspaceRoot, "generated", "docker-compose.yml")
+	dir := filepath.Dir(composeFile)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create generated dir: %w", err)
+	}
+
+	if _, err := os.Stat(composeFile); os.IsNotExist(err) {
+		return fmt.Errorf("compose file not found: %s", composeFile)
+	}
+
+	var stdout, stderr strings.Builder
+	err := r.Runner.Run(ctx, workspaceRoot, "docker", []string{"compose", "-f", "generated/docker-compose.yml", "up", "-d", "--no-start"}, &stdout, &stderr)
+	if err != nil {
+		return fmt.Errorf("docker compose ensure: %w: %s", err, stderr.String())
+	}
+	return nil
+}
+
+func (r *ComposeRuntime) Exec(ctx context.Context, opts ExecOptions) error {
+	var stderr strings.Builder
+	args := []string{"compose", "-f", "generated/docker-compose.yml", "exec", "-T", opts.Service, "sh", "-lc", opts.Command}
+	err := r.Runner.Run(ctx, opts.WorkspaceRoot, "docker", args, opts.Stdout, &stderr)
+	if err != nil {
+		return fmt.Errorf("docker compose exec: %w: %s", err, stderr.String())
+	}
+	return nil
+}
+
+func (r *ComposeRuntime) StopProcess(ctx context.Context, workspaceRoot string, service string) error {
+	var stdout, stderr strings.Builder
+	args := []string{"compose", "-f", "generated/docker-compose.yml", "exec", "-T", service, "onespace-supervisor", "stop"}
+	err := r.Runner.Run(ctx, workspaceRoot, "docker", args, &stdout, &stderr)
+	if err != nil {
+		return fmt.Errorf("stop process: %w: %s", err, stderr.String())
+	}
+	return nil
+}
+
+func (r *ComposeRuntime) StartProcess(ctx context.Context, workspaceRoot string, service string, command string) error {
+	var stdout, stderr strings.Builder
+	args := []string{"compose", "-f", "generated/docker-compose.yml", "exec", "-T", service, "onespace-supervisor", "start", command}
+	err := r.Runner.Run(ctx, workspaceRoot, "docker", args, &stdout, &stderr)
+	if err != nil {
+		return fmt.Errorf("start process: %w: %s", err, stderr.String())
+	}
+	return nil
+}
+
+func (r *ComposeRuntime) ServiceStatus(ctx context.Context, workspaceRoot string, service string) (ServiceStatus, error) {
+	var stdout, stderr strings.Builder
+	args := []string{"compose", "-f", "generated/docker-compose.yml", "exec", "-T", service, "onespace-supervisor", "status"}
+	err := r.Runner.Run(ctx, workspaceRoot, "docker", args, &stdout, &stderr)
+	if err != nil {
+		return ServiceStatus{Container: "unknown", Process: "unknown"}, nil
+	}
+	container := "running"
+	process := strings.TrimSpace(stdout.String())
+	return ServiceStatus{Container: container, Process: process}, nil
+}
+
+func WriteComposeFile(workspaceRoot string, data []byte) error {
+	dir := filepath.Join(workspaceRoot, "generated")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "docker-compose.yml"), data, 0o644)
+}
