@@ -115,3 +115,26 @@ services:
 		t.Fatal("expected repo root validation error")
 	}
 }
+
+func TestLoadWorkspaceLoadsSmokeJavaExample(t *testing.T) {
+	configPath := filepath.Join("..", "..", "examples", "workspaces", "smoke-java", "onespace.yaml")
+
+	ws, err := LoadWorkspace(configPath)
+	if err != nil {
+		t.Fatalf("LoadWorkspace returned error: %v", err)
+	}
+
+	svc := ws.Services["order-api"]
+	if svc.Language != "java-maven" {
+		t.Fatalf("Language = %q, want java-maven", svc.Language)
+	}
+	if svc.Image != "onespace/java-dev:21-maven" {
+		t.Fatalf("Image = %q, want onespace/java-dev:21-maven", svc.Image)
+	}
+	if svc.Build.Command != "mvn package -DskipTests" {
+		t.Fatalf("Build command = %q, want Maven package default", svc.Build.Command)
+	}
+	if svc.Debug.Port != 40002 {
+		t.Fatalf("Debug.Port = %d, want 40002", svc.Debug.Port)
+	}
+}

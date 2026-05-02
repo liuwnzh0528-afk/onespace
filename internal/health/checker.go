@@ -35,21 +35,35 @@ func (c Checker) Check(ctx context.Context, hc domain.HealthCheck) Result {
 		reqCtx, cancel := context.WithTimeout(ctx, defaultTimeout(hc.TimeoutSeconds))
 		defer cancel()
 
-		req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, hc.URL, nil)
-		if err != nil {
-			return Result{Status: "failing", Message: err.Error()}
-		}
+		var last Result
+		for {
+			req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, hc.URL, nil)
+			if err != nil {
+				return Result{Status: "failing", Message: err.Error()}
+			}
 
-		resp, err := c.Client.Do(req)
-		if err != nil {
-			return Result{Status: "failing", Message: err.Error()}
-		}
-		defer resp.Body.Close()
+			resp, err := c.Client.Do(req)
+			if err != nil {
+				last = Result{Status: "failing", Message: err.Error()}
+			} else {
+				if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+					resp.Body.Close()
+					return Result{Status: "passing"}
+				}
+				last = Result{Status: "failing", Message: fmt.Sprintf("HTTP %d", resp.StatusCode)}
+				resp.Body.Close()
+			}
 
-		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			return Result{Status: "passing"}
+			select {
+			case <-reqCtx.Done():
+				if last.Status == "" {
+					return Result{Status: "failing", Message: reqCtx.Err().Error()}
+				}
+				return last
+			case <-time.After(200 * time.Millisecond):
+			}
+
 		}
-		return Result{Status: "failing", Message: fmt.Sprintf("HTTP %d", resp.StatusCode)}
 	}
 
 	return Result{Status: "unknown", Message: fmt.Sprintf("unsupported health check type: %s", hc.Type)}

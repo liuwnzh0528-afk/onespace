@@ -96,7 +96,7 @@ func buildServiceEnv(svc domain.Service) map[string]string {
 	case "go":
 		env["PATH"] = "/go/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 	case "java-maven":
-		env["PATH"] = "/usr/local/openjdk-21/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+		env["PATH"] = "/opt/java/openjdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 	}
 	return env
 }
@@ -185,6 +185,16 @@ func (r *ComposeRuntime) StartProcess(ctx context.Context, workspaceRoot string,
 	err := r.Runner.Run(ctx, workspaceRoot, "docker", args, &stdout, &stderr)
 	if err != nil {
 		return fmt.Errorf("start process: %w: %s", err, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	args = []string{"compose", "-f", "generated/docker-compose.yml", "exec", "-T", service, "onespace-supervisor", "status"}
+	err = r.Runner.Run(ctx, workspaceRoot, "docker", args, &stdout, &stderr)
+	if err != nil {
+		return fmt.Errorf("check process status: %w: %s", err, stderr.String())
+	}
+	if strings.TrimSpace(stdout.String()) != "running" {
+		return fmt.Errorf("process did not start: %s", strings.TrimSpace(stdout.String()))
 	}
 	return nil
 }

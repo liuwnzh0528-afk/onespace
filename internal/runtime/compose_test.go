@@ -76,6 +76,9 @@ func TestGenerateComposeIncludesDevRunnerVolumesPortsAndAddons(t *testing.T) {
 	if !strings.Contains(yamlStr, "/go/bin:/usr/local/go/bin") {
 		t.Error("compose YAML missing Go tool PATH")
 	}
+	if !strings.Contains(yamlStr, "/opt/java/openjdk/bin") {
+		t.Error("compose YAML missing Java tool PATH")
+	}
 	if !strings.Contains(yamlStr, "maven-cache-order-api") {
 		t.Error("compose YAML missing Maven cache volume")
 	}
@@ -122,5 +125,31 @@ func TestExecStartsServiceBeforeDockerExec(t *testing.T) {
 	}
 	if calls[1] != "compose -f generated/docker-compose.yml exec -T user-api sh -c go build ./cmd/user-api" {
 		t.Fatalf("second call = %q, want compose exec", calls[1])
+	}
+}
+
+func TestStartProcessChecksSupervisorStatus(t *testing.T) {
+	var calls []string
+	runner := &FakeCommandRunner{
+		RunFunc: func(ctx context.Context, dir string, name string, args []string, stdout io.Writer, stderr io.Writer) error {
+			calls = append(calls, strings.Join(args, " "))
+			if strings.Contains(strings.Join(args, " "), "onespace-supervisor status") {
+				_, _ = stdout.Write([]byte("running\n"))
+			}
+			return nil
+		},
+	}
+	runtime := &ComposeRuntime{Runner: runner}
+
+	err := runtime.StartProcess(context.Background(), "/workspace-root", "order-api", "java -jar target/*.jar")
+	if err != nil {
+		t.Fatalf("StartProcess returned error: %v", err)
+	}
+
+	if len(calls) != 3 {
+		t.Fatalf("calls = %v, want start container, supervisor start, supervisor status", calls)
+	}
+	if calls[2] != "compose -f generated/docker-compose.yml exec -T order-api onespace-supervisor status" {
+		t.Fatalf("status call = %q, want supervisor status", calls[2])
 	}
 }

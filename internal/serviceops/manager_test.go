@@ -208,6 +208,45 @@ func TestDebugUsesDebugBuildWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestDebugReportsJDWPForJavaMaven(t *testing.T) {
+	ws := testWorkspace()
+	ws.Services["order-api"] = domain.Service{
+		Name:     "order-api",
+		Language: "java-maven",
+		RepoPath: "/tmp/repos/order-api",
+		Workdir:  "/workspace",
+		Image:    "onespace/java-dev:21-maven",
+		Build:    domain.Command{Command: "mvn package -DskipTests"},
+		Run:      domain.Command{Command: "java -jar target/*.jar"},
+		Debug: domain.DebugConfig{
+			Port:         40002,
+			BuildCommand: "mvn package -DskipTests",
+			Command:      "java -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:40002 -jar target/*.jar",
+		},
+	}
+
+	mgr := &Manager{
+		Workspace: ws,
+		Git:       &fakeGit{},
+		Runtime:   &runtime.FakeRuntime{},
+		Health:    health.Checker{},
+	}
+
+	result, err := mgr.Debug(context.Background(), "order-api")
+	if err != nil {
+		t.Fatalf("Debug error: %v", err)
+	}
+	if result.Debug == nil {
+		t.Fatal("Debug attach should not be nil")
+	}
+	if result.Debug.Debugger != "jdwp" {
+		t.Fatalf("Debugger = %q, want jdwp", result.Debug.Debugger)
+	}
+	if result.Debug.Address != "127.0.0.1:40002" {
+		t.Fatalf("Address = %q, want 127.0.0.1:40002", result.Debug.Address)
+	}
+}
+
 func TestPullRefusesDirtyRepo(t *testing.T) {
 	ws := testWorkspace()
 	fakeGitSvc := &fakeGit{

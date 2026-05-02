@@ -123,7 +123,7 @@ func (m *Manager) debug(ctx context.Context, service string) (Result, error) {
 		Status:  "success",
 		Stage:   "debug",
 		Debug: &DebugAttach{
-			Debugger: "dlv",
+			Debugger: debuggerName(svc.Language),
 			Address:  debugAddr,
 		},
 	}, nil
@@ -280,4 +280,13 @@ func (m *Manager) runMutatingJob(ctx context.Context, service string, jobType jo
 
 func newJobID(jobType jobs.Type, service string) string {
 	return fmt.Sprintf("job_%s_%s_%d", jobType, service, time.Now().UnixNano())
+}
+
+func debuggerName(language string) string {
+	switch language {
+	case "java-maven":
+		return "jdwp"
+	default:
+		return "dlv"
+	}
 }

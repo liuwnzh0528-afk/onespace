@@ -1,0 +1,18 @@
+version: 1
+name: smoke-java
+allowedRepoRoots:
+  - repos
+services:
+  order-api:
+    language: java-maven
+    repoPath: repos/order-api
+    ports:
+      - name: http
+        container: 8080
+        host: 18082
+    health:
+      type: http
+      url: http://127.0.0.1:18082/health
+      timeoutSeconds: 30
+    debug:
+      port: 40002
