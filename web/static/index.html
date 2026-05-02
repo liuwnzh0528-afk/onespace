@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Onespace</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>Onespace</h1>
+        <p id="workspace-name">Loading workspace</p>
+      </div>
+      <button id="refresh" type="button">Refresh</button>
+    </header>
+    <main class="layout">
+      <section class="panel">
+        <h2>Services</h2>
+        <div id="services"></div>
+      </section>
+      <section class="panel">
+        <h2>Activity</h2>
+        <pre id="activity"></pre>
+      </section>
+    </main>
+    <script type="module" src="/static/app.js"></script>
+  </body>
+</html>

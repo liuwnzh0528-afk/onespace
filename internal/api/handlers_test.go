@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/wnzhone/onespace/internal/domain"
@@ -148,4 +150,43 @@ func TestEventsStreamsJobEvents(t *testing.T) {
 
 	cancel()
 	<-done
+}
+
+func TestStaticIndexServedAtRoot(t *testing.T) {
+	staticDir := t.TempDir()
+	indexHTML := `<!doctype html><html><head><title>Onespace</title></head><body><h1>Onespace</h1></body></html>`
+	if err := os.WriteFile(filepath.Join(staticDir, "index.html"), []byte(indexHTML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	store, err := jobs.OpenSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+
+	srv := &Server{
+		Workspace: domain.Workspace{Name: "test-ws", Path: "/tmp/test-ws"},
+		Ops:       &fakeOps{deployResult: serviceops.Result{Service: "user-api", Status: "success", Stage: "done"}},
+		JobStore:  store,
+		Logs:      logs.Store{Root: dir},
+		Health:    health.Checker{},
+		Events:    NewEventBroker(),
+		StaticDir: staticDir,
+		Mux:       http.NewServeMux(),
+	}
+	srv.registerRoutes()
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	srv.Mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+	if !strings.Contains(w.Body.String(), "Onespace") {
+		t.Fatalf("response body does not contain Onespace: %s", w.Body.String())
+	}
 }

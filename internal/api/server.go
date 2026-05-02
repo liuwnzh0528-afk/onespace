@@ -27,6 +27,7 @@ type Server struct {
 	Logs      logs.Store
 	Health    health.Checker
 	Events    *EventBroker
+	StaticDir string
 	Mux       *http.ServeMux
 }
 
@@ -60,6 +61,18 @@ func (s *Server) registerRoutes() {
 	if s.Events != nil {
 		s.Mux.Handle("GET /api/events", s.Events)
 	}
+	if s.StaticDir != "" {
+		s.Mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.Dir(s.StaticDir))))
+		s.Mux.HandleFunc("GET /", s.serveIndex)
+	}
+}
+
+func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	http.ServeFile(w, r, s.StaticDir+"/index.html")
 }
 
 func (s *Server) Handler() http.Handler {
