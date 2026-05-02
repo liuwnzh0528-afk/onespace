@@ -1,0 +1,19 @@
+version: 1
+name: smoke-go
+allowedRepoRoots:
+  - /data/workspaces/smoke-go/repos
+services:
+  user-api:
+    language: go
+    repoPath: /data/workspaces/smoke-go/repos/user-api
+    main: ./cmd/user-api
+    ports:
+      - name: http
+        container: 8080
+        host: 18081
+    health:
+      type: http
+      url: http://127.0.0.1:18081/health
+      timeoutSeconds: 30
+    debug:
+      port: 40001
