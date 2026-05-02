@@ -1,19 +1,23 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/wnzhone/onespace/internal/api"
 	"github.com/wnzhone/onespace/internal/config"
+	"github.com/wnzhone/onespace/internal/gitx"
 	"github.com/wnzhone/onespace/internal/health"
 	"github.com/wnzhone/onespace/internal/jobs"
 	"github.com/wnzhone/onespace/internal/logs"
+	"github.com/wnzhone/onespace/internal/runtime"
 	"github.com/wnzhone/onespace/internal/serviceops"
 	"github.com/wnzhone/onespace/internal/version"
 )
@@ -52,6 +56,19 @@ func serve() {
 		os.Exit(1)
 	}
 
+	ws.Path = filepath.Dir(*configPath)
+
+	// Generate compose file
+	composeData, err := runtime.GenerateCompose(ws)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "onespace-server: generate compose: %v\n", err)
+		os.Exit(1)
+	}
+	if err := runtime.WriteComposeFile(ws.Path, composeData); err != nil {
+		fmt.Fprintf(os.Stderr, "onespace-server: write compose file: %v\n", err)
+		os.Exit(1)
+	}
+
 	stateDir := filepath.Join(filepath.Dir(*configPath), "state")
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
 		fmt.Fprintf(os.Stderr, "onespace-server: create state dir: %v\n", err)
@@ -71,15 +88,31 @@ func serve() {
 	events := api.NewEventBroker()
 	checker := health.Checker{}
 
+	osRunner := runtime.OSCommandRunner{}
+	composeRuntime := &runtime.ComposeRuntime{Runner: osRunner}
+
+	gitRunner := &gitCommandRunner{}
+	gitSvc := &gitx.Service{Runner: gitRunner}
+
 	manager := &serviceops.Manager{
 		Workspace: ws,
-		Runtime:   nil,
+		Git:       gitSvc,
+		Runtime:   composeRuntime,
 		Health:    checker,
 		Jobs:      jobs.NewRunner(jobStore),
 		Logs:      logStore,
 	}
 
+	staticDir := ""
+	exePath, _ := os.Executable()
+	exeDir := filepath.Dir(exePath)
+	candidate := filepath.Join(exeDir, "..", "web", "static")
+	if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+		staticDir, _ = filepath.Abs(candidate)
+	}
+
 	server := api.NewServer(ws, manager, jobStore, logStore, checker, events)
+	server.StaticDir = staticDir
 
 	bind := ws.Server.Bind
 	if bind == "" {
@@ -90,4 +123,12 @@ func serve() {
 	if err := http.ListenAndServe(bind, server.Handler()); err != nil {
 		log.Fatalf("onespace-server: %v", err)
 	}
+}
+
+type gitCommandRunner struct{}
+
+func (g *gitCommandRunner) Run(ctx context.Context, dir string, name string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = dir
+	return cmd.CombinedOutput()
 }

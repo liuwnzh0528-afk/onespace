@@ -87,6 +87,12 @@ func buildServiceEnv(svc domain.Service) map[string]string {
 	env := map[string]string{
 		"ONESPACE_STATE_DIR": svc.Workdir + "/.onespace",
 	}
+	switch svc.Language {
+	case "go":
+		env["PATH"] = "/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	case "java-maven":
+		env["PATH"] = "/usr/local/openjdk-21/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	}
 	return env
 }
 
