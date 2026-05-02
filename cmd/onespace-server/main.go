@@ -104,13 +104,17 @@ func serve() {
 	staticDir := ""
 	exePath, _ := os.Executable()
 	exeDir := filepath.Dir(exePath)
-	candidate := filepath.Join(exeDir, "..", "web", "static")
-	if info, err := os.Stat(candidate); err == nil && info.IsDir() {
-		staticDir, _ = filepath.Abs(candidate)
+	for _, candidate := range []string{
+		filepath.Join(exeDir, "web", "static"),
+		filepath.Join(exeDir, "..", "web", "static"),
+	} {
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			staticDir, _ = filepath.Abs(candidate)
+			break
+		}
 	}
 
-	server := api.NewServer(ws, manager, jobStore, logStore, checker, events)
-	server.StaticDir = staticDir
+	server := api.NewServer(ws, manager, jobStore, logStore, checker, events, staticDir)
 
 	bind := ws.Server.Bind
 	if bind == "" {

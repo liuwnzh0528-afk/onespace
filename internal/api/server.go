@@ -31,7 +31,7 @@ type Server struct {
 	Mux       *http.ServeMux
 }
 
-func NewServer(workspace domain.Workspace, ops Operations, jobStore jobs.Store, logStore logs.Store, healthChecker health.Checker, events *EventBroker) *Server {
+func NewServer(workspace domain.Workspace, ops Operations, jobStore jobs.Store, logStore logs.Store, healthChecker health.Checker, events *EventBroker, staticDir string) *Server {
 	s := &Server{
 		Workspace: workspace,
 		Ops:       ops,
@@ -39,6 +39,7 @@ func NewServer(workspace domain.Workspace, ops Operations, jobStore jobs.Store, 
 		Logs:      logStore,
 		Health:    healthChecker,
 		Events:    events,
+		StaticDir: staticDir,
 		Mux:       http.NewServeMux(),
 	}
 	s.registerRoutes()

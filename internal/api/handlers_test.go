@@ -74,6 +74,7 @@ func newTestServer(t *testing.T) *Server {
 		logs.Store{Root: dir},
 		health.Checker{},
 		NewEventBroker(),
+		"",
 	)
 }
 
