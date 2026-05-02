@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"context"
+	"io"
 	"strings"
 	"testing"
 
@@ -84,5 +86,35 @@ func TestGenerateComposeIncludesDevRunnerVolumesPortsAndAddons(t *testing.T) {
 
 	if !strings.Contains(yamlStr, "order-system-dev-default") {
 		t.Error("compose YAML missing network")
+	}
+}
+
+func TestExecStartsServiceBeforeDockerExec(t *testing.T) {
+	var calls []string
+	runner := &FakeCommandRunner{
+		RunFunc: func(ctx context.Context, dir string, name string, args []string, stdout io.Writer, stderr io.Writer) error {
+			calls = append(calls, strings.Join(args, " "))
+			return nil
+		},
+	}
+	runtime := &ComposeRuntime{Runner: runner}
+
+	err := runtime.Exec(context.Background(), ExecOptions{
+		WorkspaceRoot: "/workspace-root",
+		Service:       "user-api",
+		Command:       "go build ./cmd/user-api",
+	})
+	if err != nil {
+		t.Fatalf("Exec returned error: %v", err)
+	}
+
+	if len(calls) != 2 {
+		t.Fatalf("calls = %v, want start then exec", calls)
+	}
+	if calls[0] != "compose -f generated/docker-compose.yml start user-api" {
+		t.Fatalf("first call = %q, want compose start", calls[0])
+	}
+	if calls[1] != "compose -f generated/docker-compose.yml exec -T user-api sh -lc go build ./cmd/user-api" {
+		t.Fatalf("second call = %q, want compose exec", calls[1])
 	}
 }

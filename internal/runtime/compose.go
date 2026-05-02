@@ -132,7 +132,23 @@ func (r *ComposeRuntime) Ensure(ctx context.Context, workspaceRoot string) error
 	return nil
 }
 
+// ensureServiceRunning starts the service container if it is not already running.
+// docker compose start is a no-op when the container is already running, so it
+// is safe to call unconditionally before exec-ing into a container.
+func (r *ComposeRuntime) ensureServiceRunning(ctx context.Context, workspaceRoot, service string) error {
+	var stdout, stderr strings.Builder
+	args := []string{"compose", "-f", "generated/docker-compose.yml", "start", service}
+	err := r.Runner.Run(ctx, workspaceRoot, "docker", args, &stdout, &stderr)
+	if err != nil {
+		return fmt.Errorf("docker compose start %s: %w: %s", service, err, stderr.String())
+	}
+	return nil
+}
+
 func (r *ComposeRuntime) Exec(ctx context.Context, opts ExecOptions) error {
+	if err := r.ensureServiceRunning(ctx, opts.WorkspaceRoot, opts.Service); err != nil {
+		return err
+	}
 	var stderr strings.Builder
 	args := []string{"compose", "-f", "generated/docker-compose.yml", "exec", "-T", opts.Service, "sh", "-lc", opts.Command}
 	err := r.Runner.Run(ctx, opts.WorkspaceRoot, "docker", args, opts.Stdout, &stderr)
@@ -143,6 +159,9 @@ func (r *ComposeRuntime) Exec(ctx context.Context, opts ExecOptions) error {
 }
 
 func (r *ComposeRuntime) StopProcess(ctx context.Context, workspaceRoot string, service string) error {
+	if err := r.ensureServiceRunning(ctx, workspaceRoot, service); err != nil {
+		return err
+	}
 	var stdout, stderr strings.Builder
 	args := []string{"compose", "-f", "generated/docker-compose.yml", "exec", "-T", service, "onespace-supervisor", "stop"}
 	err := r.Runner.Run(ctx, workspaceRoot, "docker", args, &stdout, &stderr)
@@ -153,6 +172,9 @@ func (r *ComposeRuntime) StopProcess(ctx context.Context, workspaceRoot string, 
 }
 
 func (r *ComposeRuntime) StartProcess(ctx context.Context, workspaceRoot string, service string, command string) error {
+	if err := r.ensureServiceRunning(ctx, workspaceRoot, service); err != nil {
+		return err
+	}
 	var stdout, stderr strings.Builder
 	args := []string{"compose", "-f", "generated/docker-compose.yml", "exec", "-T", service, "onespace-supervisor", "start", command}
 	err := r.Runner.Run(ctx, workspaceRoot, "docker", args, &stdout, &stderr)
@@ -163,11 +185,14 @@ func (r *ComposeRuntime) StartProcess(ctx context.Context, workspaceRoot string,
 }
 
 func (r *ComposeRuntime) ServiceStatus(ctx context.Context, workspaceRoot string, service string) (ServiceStatus, error) {
+	if err := r.ensureServiceRunning(ctx, workspaceRoot, service); err != nil {
+		return ServiceStatus{Container: "unknown", Process: "unknown"}, nil
+	}
 	var stdout, stderr strings.Builder
 	args := []string{"compose", "-f", "generated/docker-compose.yml", "exec", "-T", service, "onespace-supervisor", "status"}
 	err := r.Runner.Run(ctx, workspaceRoot, "docker", args, &stdout, &stderr)
 	if err != nil {
-		return ServiceStatus{Container: "unknown", Process: "unknown"}, nil
+		return ServiceStatus{Container: "running", Process: "unknown"}, nil
 	}
 	container := "running"
 	process := strings.TrimSpace(stdout.String())
