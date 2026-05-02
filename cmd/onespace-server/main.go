@@ -56,8 +56,6 @@ func serve() {
 		os.Exit(1)
 	}
 
-	ws.Path = filepath.Dir(*configPath)
-
 	// Generate compose file
 	composeData, err := runtime.GenerateCompose(ws)
 	if err != nil {
@@ -69,7 +67,7 @@ func serve() {
 		os.Exit(1)
 	}
 
-	stateDir := filepath.Join(filepath.Dir(*configPath), "state")
+	stateDir := filepath.Join(ws.Path, "state")
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
 		fmt.Fprintf(os.Stderr, "onespace-server: create state dir: %v\n", err)
 		os.Exit(1)

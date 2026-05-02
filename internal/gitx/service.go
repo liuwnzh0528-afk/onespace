@@ -35,7 +35,7 @@ func (s Service) Status(ctx context.Context, repoPath string) (Status, error) {
 		st.Commit = strings.TrimSpace(string(commit))
 	}
 
-	porcelain, err := s.Runner.Run(ctx, repoPath, "git", "status", "--porcelain")
+	porcelain, err := s.Runner.Run(ctx, repoPath, "git", "status", "--porcelain", "--", ".", ":!.onespace")
 	if err == nil && len(strings.TrimSpace(string(porcelain))) > 0 {
 		st.Dirty = true
 	}

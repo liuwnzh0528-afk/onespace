@@ -3,9 +3,11 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"path/filepath"
 	"strconv"
 
 	"github.com/wnzhone/onespace/internal/jobs"
+	"github.com/wnzhone/onespace/internal/logs"
 )
 
 type serviceSummary struct {
@@ -160,6 +162,39 @@ func (s *Server) handleGetJobLogs(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if lines == nil {
+		lines = []string{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"lines": lines})
+}
+
+func (s *Server) handleGetServiceLogs(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("service")
+	svc, ok := s.Workspace.Services[name]
+	if !ok {
+		writeError(w, http.StatusNotFound, "service not found")
+		return
+	}
+
+	tail := 200
+	if t := r.URL.Query().Get("tail"); t != "" {
+		if n, err := strconv.Atoi(t); err == nil {
+			tail = n
+		}
+	}
+	lines, err := s.Logs.ReadServiceTail(r.Context(), name, tail)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if len(lines) == 0 && svc.RepoPath != "" {
+		runnerLines, err := logs.ReadFileTail(filepath.Join(svc.RepoPath, ".onespace", "service.log"), tail)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		lines = runnerLines
 	}
 	if lines == nil {
 		lines = []string{}

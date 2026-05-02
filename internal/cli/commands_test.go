@@ -39,6 +39,15 @@ func newTestDaemon(t *testing.T) *httptest.Server {
 		})
 	})
 
+	mux.HandleFunc("GET /api/services/{service}/logs", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(struct {
+			Lines []string `json:"lines"`
+		}{
+			Lines: []string{"service line"},
+		})
+	})
+
 	mux.HandleFunc("GET /api/services/{service}/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "passing"})
@@ -99,6 +108,44 @@ func TestDeployWaitJSONReturnsNonZeroOnFailure(t *testing.T) {
 	}
 }
 
+func TestDebugCommandPostsDebugEndpoint(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/services/{service}/debug", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(serviceops.Result{
+			Service: r.PathValue("service"),
+			Status:  "success",
+			Stage:   "debug",
+			Debug: &serviceops.DebugAttach{
+				Debugger: "dlv",
+				Address:  "127.0.0.1:40001",
+			},
+		})
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	var stdout, stderr strings.Builder
+	code := Run([]string{"debug", "user-api", "--wait", "--json"}, &stdout, &stderr, func(key string) string {
+		if key == "ONESPACE_URL" {
+			return server.URL
+		}
+		return ""
+	})
+
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr: %s", code, stderr.String())
+	}
+
+	var result serviceops.Result
+	if err := json.NewDecoder(strings.NewReader(stdout.String())).Decode(&result); err != nil {
+		t.Fatalf("decode JSON: %v", err)
+	}
+	if result.Stage != "debug" || result.Debug == nil {
+		t.Fatalf("unexpected debug result: %+v", result)
+	}
+}
+
 func TestLogsCommandPrintsTail(t *testing.T) {
 	server := newTestDaemon(t)
 	defer server.Close()
@@ -116,6 +163,26 @@ func TestLogsCommandPrintsTail(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "line 1") {
 		t.Fatalf("expected log lines in output, got: %s", stdout.String())
+	}
+}
+
+func TestLogsCommandAcceptsTailAfterServiceName(t *testing.T) {
+	server := newTestDaemon(t)
+	defer server.Close()
+
+	var stdout, stderr strings.Builder
+	code := Run([]string{"logs", "user-api", "--tail", "200"}, &stdout, &stderr, func(key string) string {
+		if key == "ONESPACE_URL" {
+			return server.URL
+		}
+		return ""
+	})
+
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "service line") {
+		t.Fatalf("expected service log line in output, got: %s", stdout.String())
 	}
 }
 

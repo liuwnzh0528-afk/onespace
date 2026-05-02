@@ -1,11 +1,11 @@
 version: 1
 name: smoke-go
 allowedRepoRoots:
-  - /data/workspaces/smoke-go/repos
+  - repos
 services:
   user-api:
     language: go
-    repoPath: /data/workspaces/smoke-go/repos/user-api
+    repoPath: repos/user-api
     main: ./cmd/user-api
     ports:
       - name: http

@@ -2,12 +2,14 @@ package serviceops
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
 	"github.com/wnzhone/onespace/internal/domain"
 	"github.com/wnzhone/onespace/internal/gitx"
 	"github.com/wnzhone/onespace/internal/health"
+	"github.com/wnzhone/onespace/internal/jobs"
 	"github.com/wnzhone/onespace/internal/runtime"
 )
 
@@ -110,6 +112,70 @@ func TestDeployReturnsBuildStageOnBuildFailure(t *testing.T) {
 	}
 	if result.Stage != "build" {
 		t.Fatalf("Stage = %q, want build", result.Stage)
+	}
+}
+
+type recordingJobStore struct {
+	created []jobs.Job
+	updated []jobs.Job
+}
+
+func (s *recordingJobStore) Create(ctx context.Context, job jobs.Job) error {
+	s.created = append(s.created, job)
+	return nil
+}
+
+func (s *recordingJobStore) Update(ctx context.Context, job jobs.Job) error {
+	s.updated = append(s.updated, job)
+	return nil
+}
+
+func (s *recordingJobStore) Get(ctx context.Context, id string) (jobs.Job, error) {
+	return jobs.Job{}, errors.New("not implemented")
+}
+
+func (s *recordingJobStore) List(ctx context.Context, workspace string, limit int) ([]jobs.Job, error) {
+	return nil, errors.New("not implemented")
+}
+
+func TestDeployRunsThroughJobRunnerAndPersistsResult(t *testing.T) {
+	ws := testWorkspace()
+	store := &recordingJobStore{}
+	fakeGitSvc := &fakeGit{
+		status: gitx.Status{Commit: "abc123", Branch: "main"},
+	}
+
+	mgr := &Manager{
+		Workspace: ws,
+		Git:       fakeGitSvc,
+		Runtime:   &runtime.FakeRuntime{},
+		Health:    health.Checker{},
+		Jobs:      jobs.NewRunner(store),
+	}
+
+	result, err := mgr.Deploy(context.Background(), "user-api")
+	if err != nil {
+		t.Fatalf("Deploy error: %v", err)
+	}
+	if result.JobID == "" {
+		t.Fatal("Deploy result missing JobID")
+	}
+	if len(store.created) != 1 || len(store.updated) != 1 {
+		t.Fatalf("job store writes = created %d updated %d, want 1/1", len(store.created), len(store.updated))
+	}
+	job := store.updated[0]
+	if job.ID != result.JobID {
+		t.Fatalf("updated job ID = %q, want result JobID %q", job.ID, result.JobID)
+	}
+	if job.Type != jobs.TypeDeploy || job.Status != jobs.StatusSuccess || job.Stage != "done" {
+		t.Fatalf("unexpected updated job: %+v", job)
+	}
+	var persisted Result
+	if err := json.Unmarshal(job.Result, &persisted); err != nil {
+		t.Fatalf("unmarshal job result: %v", err)
+	}
+	if persisted.JobID != result.JobID || persisted.Service != "user-api" {
+		t.Fatalf("persisted result = %+v, want jobID %q service user-api", persisted, result.JobID)
 	}
 }
 

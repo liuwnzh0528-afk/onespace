@@ -3,6 +3,10 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -10,7 +14,13 @@ import (
 )
 
 func LoadWorkspace(path string) (domain.Workspace, error) {
-	data, err := os.ReadFile(path)
+	configPath, err := filepath.Abs(path)
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("resolve config path: %w", err)
+	}
+	workspaceDir := filepath.Dir(configPath)
+
+	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("read config: %w", err)
 	}
@@ -30,11 +40,16 @@ func LoadWorkspace(path string) (domain.Workspace, error) {
 		return domain.Workspace{}, domain.ValidationError{Field: "allowedRepoRoots", Reason: "at least one root is required"}
 	}
 
+	allowedRoots := make([]string, 0, len(raw.AllowedRepoRoots))
+	for _, root := range raw.AllowedRepoRoots {
+		allowedRoots = append(allowedRoots, resolveWorkspacePath(workspaceDir, root))
+	}
+
 	ws := domain.Workspace{
 		Version:          raw.Version,
 		Name:             raw.Name,
-		Path:             path,
-		AllowedRepoRoots: raw.AllowedRepoRoots,
+		Path:             workspaceDir,
+		AllowedRepoRoots: allowedRoots,
 		Server: domain.ServerConfig{
 			Bind: raw.Server.Bind,
 		},
@@ -63,8 +78,15 @@ func LoadWorkspace(path string) (domain.Workspace, error) {
 	}
 
 	ws.Services = make(map[string]domain.Service, len(raw.Services))
-	for name, svcYAML := range raw.Services {
-		svc, err := mapService(name, svcYAML, ws.AllowedRepoRoots)
+	serviceNames := make([]string, 0, len(raw.Services))
+	for name := range raw.Services {
+		serviceNames = append(serviceNames, name)
+	}
+	sort.Strings(serviceNames)
+	debugPortBase := portRangeStart(ws.Ports.DebugRange, 40000)
+	for i, name := range serviceNames {
+		svcYAML := raw.Services[name]
+		svc, err := mapService(name, svcYAML, ws.AllowedRepoRoots, workspaceDir, debugPortBase+i)
 		if err != nil {
 			return domain.Workspace{}, err
 		}
@@ -83,24 +105,30 @@ func LoadWorkspace(path string) (domain.Workspace, error) {
 	return ws, nil
 }
 
-func mapService(name string, raw serviceYAML, allowedRoots []string) (domain.Service, error) {
+func mapService(name string, raw serviceYAML, allowedRoots []string, workspaceDir string, defaultDebugPort int) (domain.Service, error) {
 	if raw.Language == "" {
 		return domain.Service{}, domain.ValidationError{Field: "services." + name + ".language", Reason: "is required"}
 	}
 	if raw.RepoPath == "" {
 		return domain.Service{}, domain.ValidationError{Field: "services." + name + ".repoPath", Reason: "is required"}
 	}
-	if !pathUnderAnyRoot(raw.RepoPath, allowedRoots) {
+	repoPath := resolveWorkspacePath(workspaceDir, raw.RepoPath)
+	if !pathUnderAnyRoot(repoPath, allowedRoots) {
 		return domain.Service{}, domain.ValidationError{
 			Field:  "services." + name + ".repoPath",
-			Reason: fmt.Sprintf("%q is not under any allowedRepoRoot", raw.RepoPath),
+			Reason: fmt.Sprintf("%q is not under any allowedRepoRoot", repoPath),
 		}
+	}
+
+	debugPort := raw.Debug.Port
+	if debugPort == 0 {
+		debugPort = defaultDebugPort
 	}
 
 	svc := domain.Service{
 		Name:     name,
 		Language: raw.Language,
-		RepoPath: raw.RepoPath,
+		RepoPath: repoPath,
 		Workdir:  raw.Workdir,
 		Image:    raw.Image,
 		Main:     raw.Main,
@@ -112,7 +140,7 @@ func mapService(name string, raw serviceYAML, allowedRoots []string) (domain.Ser
 		Build: domain.Command{Command: raw.Build.Command},
 		Run:   domain.Command{Command: raw.Run.Command},
 		Debug: domain.DebugConfig{
-			Port:         raw.Debug.Port,
+			Port:         debugPort,
 			BuildCommand: raw.Debug.BuildCommand,
 			Command:      raw.Debug.Command,
 		},
@@ -124,11 +152,6 @@ func mapService(name string, raw serviceYAML, allowedRoots []string) (domain.Ser
 			Container: p.Container,
 			Host:      p.Host,
 		})
-	}
-
-	debugPort := svc.Debug.Port
-	if debugPort == 0 {
-		debugPort = 40000
 	}
 
 	var defaults languageDefaults
@@ -173,4 +196,23 @@ func mapService(name string, raw serviceYAML, allowedRoots []string) (domain.Ser
 	}
 
 	return svc, nil
+}
+
+func resolveWorkspacePath(workspaceDir string, path string) string {
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path)
+	}
+	return filepath.Clean(filepath.Join(workspaceDir, path))
+}
+
+func portRangeStart(raw string, fallback int) int {
+	if raw == "" {
+		return fallback
+	}
+	start, _, _ := strings.Cut(raw, "-")
+	port, err := strconv.Atoi(strings.TrimSpace(start))
+	if err != nil || port <= 0 {
+		return fallback
+	}
+	return port
 }

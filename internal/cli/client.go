@@ -58,6 +58,15 @@ func (c Client) GetServices(ctx context.Context) ([]ServiceSummary, error) {
 
 func (c Client) Deploy(ctx context.Context, service string, wait bool) (serviceops.Result, error) {
 	url := fmt.Sprintf("%s/api/services/%s/deploy", c.BaseURL, service)
+	return c.postServiceAction(ctx, url)
+}
+
+func (c Client) Debug(ctx context.Context, service string, wait bool) (serviceops.Result, error) {
+	url := fmt.Sprintf("%s/api/services/%s/debug", c.BaseURL, service)
+	return c.postServiceAction(ctx, url)
+}
+
+func (c Client) postServiceAction(ctx context.Context, url string) (serviceops.Result, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
 		return serviceops.Result{}, err

@@ -13,7 +13,12 @@ import (
 )
 
 func GenerateCompose(ws domain.Workspace) ([]byte, error) {
+	projectName := ws.Runtime.ProjectName
+	if projectName == "" {
+		projectName = ws.Name
+	}
 	compose := map[string]interface{}{
+		"name":     projectName,
 		"services": buildServices(ws),
 		"networks": map[string]interface{}{
 			ws.Runtime.Network: map[string]interface{}{
@@ -89,7 +94,7 @@ func buildServiceEnv(svc domain.Service) map[string]string {
 	}
 	switch svc.Language {
 	case "go":
-		env["PATH"] = "/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+		env["PATH"] = "/go/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 	case "java-maven":
 		env["PATH"] = "/usr/local/openjdk-21/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 	}
@@ -150,7 +155,7 @@ func (r *ComposeRuntime) Exec(ctx context.Context, opts ExecOptions) error {
 		return err
 	}
 	var stderr strings.Builder
-	args := []string{"compose", "-f", "generated/docker-compose.yml", "exec", "-T", opts.Service, "sh", "-lc", opts.Command}
+	args := []string{"compose", "-f", "generated/docker-compose.yml", "exec", "-T", opts.Service, "sh", "-c", opts.Command}
 	err := r.Runner.Run(ctx, opts.WorkspaceRoot, "docker", args, opts.Stdout, &stderr)
 	if err != nil {
 		return fmt.Errorf("docker compose exec: %w: %s", err, stderr.String())

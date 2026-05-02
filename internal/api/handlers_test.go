@@ -134,6 +134,63 @@ func TestGetJobLogsReturnsTail(t *testing.T) {
 	}
 }
 
+func TestGetServiceLogsReturnsTail(t *testing.T) {
+	srv := newTestServer(t)
+	if err := srv.Logs.AppendService(context.Background(), "user-api", []byte("line 1\nline 2\n")); err != nil {
+		t.Fatalf("AppendService: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/services/user-api/logs?tail=1", nil)
+	w := httptest.NewRecorder()
+	srv.Mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	var resp struct {
+		Lines []string `json:"lines"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Lines) != 1 || resp.Lines[0] != "line 2" {
+		t.Fatalf("lines = %v, want [line 2]", resp.Lines)
+	}
+}
+
+func TestGetServiceLogsFallsBackToRunnerLog(t *testing.T) {
+	srv := newTestServer(t)
+	repoPath := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoPath, ".onespace"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoPath, ".onespace", "service.log"), []byte("runner line 1\nrunner line 2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	svc := srv.Workspace.Services["user-api"]
+	svc.RepoPath = repoPath
+	srv.Workspace.Services["user-api"] = svc
+
+	req := httptest.NewRequest(http.MethodGet, "/api/services/user-api/logs?tail=1", nil)
+	w := httptest.NewRecorder()
+	srv.Mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	var resp struct {
+		Lines []string `json:"lines"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Lines) != 1 || resp.Lines[0] != "runner line 2" {
+		t.Fatalf("lines = %v, want [runner line 2]", resp.Lines)
+	}
+}
+
 func TestEventsStreamsJobEvents(t *testing.T) {
 	srv := newTestServer(t)
 	ctx, cancel := context.WithCancel(context.Background())

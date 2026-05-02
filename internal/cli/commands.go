@@ -171,7 +171,7 @@ func runDebug(client Client, args []string, stdout, stderr io.Writer) int {
 	service := serviceArgs[0]
 
 	ctx := context.Background()
-	result, err := client.Deploy(ctx, service, *wait)
+	result, err := client.Debug(ctx, service, *wait)
 	if err != nil {
 		if *jsonOutput {
 			WriteJSON(stdout, result)
@@ -264,12 +264,22 @@ func runStop(client Client, args []string, stdout, stderr io.Writer) int {
 // flag package can parse them correctly (it stops at the first non-flag arg).
 func reorderArgs(args []string) []string {
 	var flags, positional []string
-	for _, arg := range args {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
 		if strings.HasPrefix(arg, "-") {
 			flags = append(flags, arg)
+			if flagTakesValue(arg) && !strings.Contains(arg, "=") && i+1 < len(args) {
+				flags = append(flags, args[i+1])
+				i++
+			}
 		} else {
 			positional = append(positional, arg)
 		}
 	}
 	return append(flags, positional...)
+}
+
+func flagTakesValue(arg string) bool {
+	name := strings.TrimLeft(strings.SplitN(arg, "=", 2)[0], "-")
+	return name == "job" || name == "tail"
 }

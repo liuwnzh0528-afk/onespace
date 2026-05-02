@@ -83,6 +83,23 @@ func TestStatusReportsBranchCommitDirtyAndRemote(t *testing.T) {
 	}
 }
 
+func TestStatusIgnoresOnespaceRuntimeArtifacts(t *testing.T) {
+	local, _ := setupRepoWithRemote(t)
+
+	if err := exec.Command("sh", "-c", "mkdir -p "+local+"/.onespace/bin && echo app > "+local+"/.onespace/bin/app").Run(); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := Service{Runner: osRunner{}}
+	st, err := svc.Status(context.Background(), local)
+	if err != nil {
+		t.Fatalf("Status error: %v", err)
+	}
+	if st.Dirty {
+		t.Fatal("Onespace runtime artifacts should not make the repo dirty")
+	}
+}
+
 func TestPullRefusesDirtyWorkingTree(t *testing.T) {
 	local, _ := setupRepoWithRemote(t)
 

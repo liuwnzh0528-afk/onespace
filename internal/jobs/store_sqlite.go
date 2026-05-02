@@ -51,20 +51,28 @@ func (s *SQLiteStore) init() error {
 }
 
 func (s *SQLiteStore) Create(ctx context.Context, job Job) error {
+	result := job.Result
+	if result == nil {
+		result = []byte{}
+	}
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO jobs (id, type, workspace, service, status, stage, started_at, finished_at, exit_code, log_ref, result)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		job.ID, job.Type, job.Workspace, job.Service, job.Status, job.Stage,
-		job.StartedAt, job.FinishedAt, job.ExitCode, job.LogRef, job.Result,
+		job.StartedAt, job.FinishedAt, job.ExitCode, job.LogRef, result,
 	)
 	return err
 }
 
 func (s *SQLiteStore) Update(ctx context.Context, job Job) error {
+	result := job.Result
+	if result == nil {
+		result = []byte{}
+	}
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE jobs SET type=?, workspace=?, service=?, status=?, stage=?, started_at=?, finished_at=?, exit_code=?, log_ref=?, result=? WHERE id=?`,
 		job.Type, job.Workspace, job.Service, job.Status, job.Stage,
-		job.StartedAt, job.FinishedAt, job.ExitCode, job.LogRef, job.Result, job.ID,
+		job.StartedAt, job.FinishedAt, job.ExitCode, job.LogRef, result, job.ID,
 	)
 	return err
 }

@@ -25,3 +25,7 @@ func tailFile(path string, lines int) ([]string, error) {
 	}
 	return allLines[len(allLines)-lines:], nil
 }
+
+func ReadFileTail(path string, lines int) ([]string, error) {
+	return tailFile(path, lines)
+}

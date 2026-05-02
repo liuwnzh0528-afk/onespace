@@ -1,2 +1,8 @@
 .worktrees/
 .superpowers/
+/onespace
+/onespace-server
+examples/workspaces/*/generated/
+examples/workspaces/*/state/
+examples/workspaces/*/repos/*/.git/
+examples/workspaces/*/repos/*/.onespace/

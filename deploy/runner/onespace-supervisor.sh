@@ -14,7 +14,7 @@ case "${1:-}" in
       echo "service already running"
       exit 0
     fi
-    sh -lc "$*" >>"$LOG_FILE" 2>&1 &
+    sh -c "exec $*" >>"$LOG_FILE" 2>&1 &
     echo "$!" >"$PID_FILE"
     ;;
   stop)

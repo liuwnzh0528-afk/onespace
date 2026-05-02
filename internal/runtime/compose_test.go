@@ -73,6 +73,9 @@ func TestGenerateComposeIncludesDevRunnerVolumesPortsAndAddons(t *testing.T) {
 	if !strings.Contains(yamlStr, "go-cache-user-api") {
 		t.Error("compose YAML missing Go cache volume")
 	}
+	if !strings.Contains(yamlStr, "/go/bin:/usr/local/go/bin") {
+		t.Error("compose YAML missing Go tool PATH")
+	}
 	if !strings.Contains(yamlStr, "maven-cache-order-api") {
 		t.Error("compose YAML missing Maven cache volume")
 	}
@@ -86,6 +89,9 @@ func TestGenerateComposeIncludesDevRunnerVolumesPortsAndAddons(t *testing.T) {
 
 	if !strings.Contains(yamlStr, "order-system-dev-default") {
 		t.Error("compose YAML missing network")
+	}
+	if !strings.Contains(yamlStr, "name: order-system-dev") {
+		t.Error("compose YAML missing project name")
 	}
 }
 
@@ -114,7 +120,7 @@ func TestExecStartsServiceBeforeDockerExec(t *testing.T) {
 	if calls[0] != "compose -f generated/docker-compose.yml start user-api" {
 		t.Fatalf("first call = %q, want compose start", calls[0])
 	}
-	if calls[1] != "compose -f generated/docker-compose.yml exec -T user-api sh -lc go build ./cmd/user-api" {
+	if calls[1] != "compose -f generated/docker-compose.yml exec -T user-api sh -c go build ./cmd/user-api" {
 		t.Fatalf("second call = %q, want compose exec", calls[1])
 	}
 }

@@ -32,7 +32,9 @@ func (r *Runner) Run(ctx context.Context, job Job, mutating bool, fn func(contex
 	job.StartedAt = time.Now()
 
 	if r.Store != nil {
-		_ = r.Store.Create(ctx, job)
+		if err := r.Store.Create(ctx, job); err != nil {
+			return job, err
+		}
 	}
 
 	err := fn(ctx, &job)
@@ -44,7 +46,9 @@ func (r *Runner) Run(ctx context.Context, job Job, mutating bool, fn func(contex
 	job.FinishedAt = time.Now()
 
 	if r.Store != nil {
-		_ = r.Store.Update(ctx, job)
+		if updateErr := r.Store.Update(ctx, job); updateErr != nil && err == nil {
+			return job, updateErr
+		}
 	}
 
 	return job, err

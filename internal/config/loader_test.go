@@ -49,6 +49,48 @@ services:
 	if svc.Build.Command == "" || svc.Run.Command == "" || svc.Debug.Command == "" {
 		t.Fatalf("language defaults were not applied: %+v", svc)
 	}
+	if svc.Debug.Port != 40000 {
+		t.Fatalf("Debug.Port = %d, want 40000", svc.Debug.Port)
+	}
+}
+
+func TestLoadWorkspaceResolvesRelativePathsFromConfigDirectory(t *testing.T) {
+	dir := t.TempDir()
+	repoRoot := filepath.Join(dir, "repos")
+	if err := os.MkdirAll(filepath.Join(repoRoot, "user-api"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(dir, "onespace.yaml")
+	yaml := `
+version: 1
+name: relative-ws
+allowedRepoRoots:
+  - repos
+services:
+  user-api:
+    language: go
+    repoPath: repos/user-api
+    main: ./cmd/user-api
+`
+	if err := os.WriteFile(configPath, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ws, err := LoadWorkspace(configPath)
+	if err != nil {
+		t.Fatalf("LoadWorkspace returned error: %v", err)
+	}
+
+	if ws.Path != dir {
+		t.Fatalf("Workspace.Path = %q, want %q", ws.Path, dir)
+	}
+	if len(ws.AllowedRepoRoots) != 1 || ws.AllowedRepoRoots[0] != repoRoot {
+		t.Fatalf("AllowedRepoRoots = %v, want [%q]", ws.AllowedRepoRoots, repoRoot)
+	}
+	svc := ws.Services["user-api"]
+	if svc.RepoPath != filepath.Join(repoRoot, "user-api") {
+		t.Fatalf("RepoPath = %q, want %q", svc.RepoPath, filepath.Join(repoRoot, "user-api"))
+	}
 }
 
 func TestLoadWorkspaceRejectsRepoOutsideAllowedRoots(t *testing.T) {

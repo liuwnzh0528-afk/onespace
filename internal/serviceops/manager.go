@@ -2,7 +2,9 @@ package serviceops
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/wnzhone/onespace/internal/domain"
 	"github.com/wnzhone/onespace/internal/gitx"
@@ -27,6 +29,10 @@ type Manager struct {
 }
 
 func (m *Manager) Deploy(ctx context.Context, service string) (Result, error) {
+	return m.runMutatingJob(ctx, service, jobs.TypeDeploy, m.deploy)
+}
+
+func (m *Manager) deploy(ctx context.Context, service string) (Result, error) {
 	svc, ok := m.Workspace.Services[service]
 	if !ok {
 		return Result{Service: service, Status: "failed", Stage: "validate"}, fmt.Errorf("service %q not found", service)
@@ -80,6 +86,10 @@ func (m *Manager) Deploy(ctx context.Context, service string) (Result, error) {
 }
 
 func (m *Manager) Debug(ctx context.Context, service string) (Result, error) {
+	return m.runMutatingJob(ctx, service, jobs.TypeDebug, m.debug)
+}
+
+func (m *Manager) debug(ctx context.Context, service string) (Result, error) {
 	svc, ok := m.Workspace.Services[service]
 	if !ok {
 		return Result{Service: service, Status: "failed"}, fmt.Errorf("service %q not found", service)
@@ -120,6 +130,10 @@ func (m *Manager) Debug(ctx context.Context, service string) (Result, error) {
 }
 
 func (m *Manager) Pull(ctx context.Context, service string) (Result, error) {
+	return m.runMutatingJob(ctx, service, jobs.TypePull, m.pull)
+}
+
+func (m *Manager) pull(ctx context.Context, service string) (Result, error) {
 	svc, ok := m.Workspace.Services[service]
 	if !ok {
 		return Result{Service: service, Status: "failed"}, fmt.Errorf("service %q not found", service)
@@ -146,6 +160,10 @@ func (m *Manager) Pull(ctx context.Context, service string) (Result, error) {
 }
 
 func (m *Manager) Build(ctx context.Context, service string) (Result, error) {
+	return m.runMutatingJob(ctx, service, jobs.TypeBuild, m.build)
+}
+
+func (m *Manager) build(ctx context.Context, service string) (Result, error) {
 	svc, ok := m.Workspace.Services[service]
 	if !ok {
 		return Result{Service: service, Status: "failed"}, fmt.Errorf("service %q not found", service)
@@ -167,6 +185,10 @@ func (m *Manager) Build(ctx context.Context, service string) (Result, error) {
 }
 
 func (m *Manager) Restart(ctx context.Context, service string) (Result, error) {
+	return m.runMutatingJob(ctx, service, jobs.TypeRestart, m.restart)
+}
+
+func (m *Manager) restart(ctx context.Context, service string) (Result, error) {
 	svc, ok := m.Workspace.Services[service]
 	if !ok {
 		return Result{Service: service, Status: "failed"}, fmt.Errorf("service %q not found", service)
@@ -182,8 +204,80 @@ func (m *Manager) Restart(ctx context.Context, service string) (Result, error) {
 }
 
 func (m *Manager) Stop(ctx context.Context, service string) (Result, error) {
+	return m.runMutatingJob(ctx, service, jobs.TypeStop, m.stop)
+}
+
+func (m *Manager) stop(ctx context.Context, service string) (Result, error) {
 	if err := m.Runtime.StopProcess(ctx, m.Workspace.Path, service); err != nil {
 		return Result{Service: service, Status: "failed", Stage: "stop"}, err
 	}
 	return Result{Service: service, Status: "success", Stage: "stop"}, nil
+}
+
+func (m *Manager) runMutatingJob(ctx context.Context, service string, jobType jobs.Type, fn func(context.Context, string) (Result, error)) (Result, error) {
+	jobID := newJobID(jobType, service)
+	job := jobs.Job{
+		ID:        jobID,
+		Type:      jobType,
+		Workspace: m.Workspace.Name,
+		Service:   service,
+	}
+
+	if m.Jobs == nil {
+		result, err := fn(ctx, service)
+		result.JobID = jobID
+		if result.Service == "" {
+			result.Service = service
+		}
+		if result.Status == "" {
+			if err != nil {
+				result.Status = "failed"
+			} else {
+				result.Status = "success"
+			}
+		}
+		return result, err
+	}
+
+	var result Result
+	_, err := m.Jobs.Run(ctx, job, true, func(jobCtx context.Context, j *jobs.Job) error {
+		opResult, opErr := fn(jobCtx, service)
+		opResult.JobID = jobID
+		if opResult.Service == "" {
+			opResult.Service = service
+		}
+		if opResult.Status == "" {
+			if opErr != nil {
+				opResult.Status = "failed"
+			} else {
+				opResult.Status = "success"
+			}
+		}
+		j.Stage = opResult.Stage
+		j.ExitCode = opResult.ExitCode
+		j.LogRef = opResult.LogRef
+		if data, marshalErr := json.Marshal(opResult); marshalErr == nil {
+			j.Result = data
+		}
+		result = opResult
+		return opErr
+	})
+	if result.JobID == "" {
+		result.JobID = jobID
+	}
+	if result.Service == "" {
+		result.Service = service
+	}
+	if result.Status == "" {
+		if err != nil {
+			result.Status = "failed"
+		} else {
+			result.Status = "success"
+		}
+	}
+	return result, err
+}
+
+func newJobID(jobType jobs.Type, service string) string {
+	return fmt.Sprintf("job_%s_%s_%d", jobType, service, time.Now().UnixNano())
 }

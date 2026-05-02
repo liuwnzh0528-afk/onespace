@@ -129,3 +129,40 @@ func TestSQLiteStorePersistsJobResult(t *testing.T) {
 		t.Fatalf("Result = %q, want %q", got.Result, job.Result)
 	}
 }
+
+func TestRunnerPersistsSQLiteJobLifecycle(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	store, err := OpenSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("OpenSQLiteStore: %v", err)
+	}
+	defer store.Close()
+
+	runner := NewRunner(store)
+	job := Job{
+		ID:        "job_runner_sqlite_001",
+		Type:      TypeDeploy,
+		Workspace: "ws",
+		Service:   "user-api",
+	}
+
+	_, err = runner.Run(context.Background(), job, true, func(ctx context.Context, j *Job) error {
+		j.Stage = "done"
+		j.Result = []byte(`{"status":"success"}`)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	jobs, err := store.List(context.Background(), "ws", 10)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("stored jobs = %d, want 1", len(jobs))
+	}
+	if jobs[0].Status != StatusSuccess || jobs[0].Stage != "done" {
+		t.Fatalf("stored job = %+v", jobs[0])
+	}
+}
