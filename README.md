@@ -14,3 +14,5 @@ Start with:
 go run ./cmd/onespace-server serve --config examples/workspaces/smoke-go/onespace.yaml
 go run ./cmd/onespace deploy user-api --wait --json
 ```
+
+See [docs/user-guide.md](docs/user-guide.md) for installation, quick start, workspace configuration, CLI, Web UI, API, and troubleshooting details.
