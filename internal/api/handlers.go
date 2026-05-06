@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"github.com/wnzhone/onespace/internal/appcontract"
 	"github.com/wnzhone/onespace/internal/jobs"
 	"github.com/wnzhone/onespace/internal/logs"
 )
@@ -50,6 +51,20 @@ func (s *Server) handleGetService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, svc)
+}
+
+func (s *Server) handleGetServiceConfig(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("service")
+	if _, ok := s.Workspace.Services[name]; !ok {
+		writeError(w, http.StatusNotFound, "service not found")
+		return
+	}
+	cfg, err := appcontract.Composer{Workspace: s.Workspace}.ComposeService(name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, cfg)
 }
 
 func (s *Server) handleGetServiceHealth(w http.ResponseWriter, r *http.Request) {

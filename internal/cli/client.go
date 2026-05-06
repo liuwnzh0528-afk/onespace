@@ -25,6 +25,40 @@ type ServiceSummary struct {
 	Health   string `json:"health,omitempty"`
 }
 
+type ServiceConfig struct {
+	Service   string          `json:"service"`
+	Env       []ConfigEnv     `json:"env"`
+	Files     []ConfigFile    `json:"files"`
+	Volumes   []ConfigVolume  `json:"volumes"`
+	DependsOn []string        `json:"dependsOn"`
+	Warnings  []ConfigWarning `json:"warnings,omitempty"`
+}
+
+type ConfigEnv struct {
+	Name   string `json:"name"`
+	Value  string `json:"value"`
+	Source string `json:"source"`
+	Secret bool   `json:"secret"`
+}
+
+type ConfigFile struct {
+	Source string `json:"source"`
+	Target string `json:"target"`
+	Mode   string `json:"mode"`
+	Secret bool   `json:"secret"`
+}
+
+type ConfigVolume struct {
+	Source string `json:"source"`
+	Target string `json:"target"`
+	Type   string `json:"type"`
+}
+
+type ConfigWarning struct {
+	Source string `json:"source"`
+	Reason string `json:"reason"`
+}
+
 func (c Client) httpClient() *http.Client {
 	if c.HTTP != nil {
 		return c.HTTP
@@ -54,6 +88,29 @@ func (c Client) GetServices(ctx context.Context) ([]ServiceSummary, error) {
 		return nil, err
 	}
 	return services, nil
+}
+
+func (c Client) Config(ctx context.Context, service string) (ServiceConfig, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/api/services/"+service+"/config", nil)
+	if err != nil {
+		return ServiceConfig{}, err
+	}
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.httpClient().Do(req)
+	if err != nil {
+		return ServiceConfig{}, err
+	}
+	defer resp.Body.Close()
+
+	var cfg ServiceConfig
+	if err := json.NewDecoder(resp.Body).Decode(&cfg); err != nil {
+		return ServiceConfig{}, err
+	}
+	if resp.StatusCode >= 400 {
+		return cfg, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	return cfg, nil
 }
 
 func (c Client) Deploy(ctx context.Context, service string, wait bool) (serviceops.Result, error) {

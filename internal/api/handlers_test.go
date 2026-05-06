@@ -192,6 +192,55 @@ func TestGetServiceLogsFallsBackToRunnerLog(t *testing.T) {
 	}
 }
 
+func TestGetServiceConfigReturnsRedactedConfigInspector(t *testing.T) {
+	srv := newTestServer(t)
+	dir := t.TempDir()
+	secretPath := filepath.Join(dir, "db_password")
+	if err := os.WriteFile(secretPath, []byte("super-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	svc := srv.Workspace.Services["user-api"]
+	svc.Workdir = "/workspace"
+	svc.Env = map[string]string{"APP_ENV": "local"}
+	svc.Secrets = []domain.SecretEnv{{Name: "DB_PASSWORD", FromFile: secretPath}}
+	srv.Workspace.Services["user-api"] = svc
+
+	req := httptest.NewRequest(http.MethodGet, "/api/services/user-api/config", nil)
+	w := httptest.NewRecorder()
+	srv.Mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+
+	var resp struct {
+		Service string `json:"service"`
+		Env     []struct {
+			Name   string `json:"name"`
+			Value  string `json:"value"`
+			Secret bool   `json:"secret"`
+		} `json:"env"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Service != "user-api" {
+		t.Fatalf("Service = %q, want user-api", resp.Service)
+	}
+	foundSecret := false
+	for _, entry := range resp.Env {
+		if entry.Name == "DB_PASSWORD" {
+			foundSecret = true
+			if entry.Value != "******" || !entry.Secret {
+				t.Fatalf("DB_PASSWORD entry = %+v, want redacted secret", entry)
+			}
+		}
+	}
+	if !foundSecret {
+		t.Fatal("response missing DB_PASSWORD entry")
+	}
+}
+
 func TestEventsStreamsJobEvents(t *testing.T) {
 	srv := newTestServer(t)
 	ctx, cancel := context.WithCancel(context.Background())

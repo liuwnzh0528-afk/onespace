@@ -11,7 +11,7 @@ import (
 func Run(args []string, stdout, stderr io.Writer, getenv func(string) string) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "usage: onespace <command> [args]")
-		fmt.Fprintln(stderr, "commands: status, pull, build, restart, deploy, debug, health, logs, stop, version")
+		fmt.Fprintln(stderr, "commands: status, config, pull, build, restart, deploy, debug, health, logs, stop, version")
 		return 2
 	}
 
@@ -27,6 +27,8 @@ func Run(args []string, stdout, stderr io.Writer, getenv func(string) string) in
 		return runVersion(stdout, stderr)
 	case "status":
 		return runStatus(client, args[1:], stdout, stderr)
+	case "config":
+		return runConfig(client, args[1:], stdout, stderr)
 	case "pull":
 		return runPull(client, args[1:], stdout, stderr)
 	case "build":
@@ -62,6 +64,32 @@ func runStatus(client Client, args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	WriteServicesTable(stdout, services)
+	return 0
+}
+
+func runConfig(client Client, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("config", flag.ContinueOnError)
+	jsonOutput := fs.Bool("json", false, "JSON output")
+	fs.SetOutput(stderr)
+	if err := fs.Parse(reorderArgs(args)); err != nil {
+		return 2
+	}
+	serviceArgs := fs.Args()
+	if len(serviceArgs) == 0 {
+		fmt.Fprintln(stderr, "onespace config: service name required")
+		return 2
+	}
+
+	cfg, err := client.Config(context.Background(), serviceArgs[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "onespace config: %v\n", err)
+		return 1
+	}
+	if *jsonOutput {
+		WriteJSON(stdout, cfg)
+	} else {
+		WriteConfigText(stdout, cfg)
+	}
 	return 0
 }
 

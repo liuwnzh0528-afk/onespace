@@ -153,6 +153,7 @@ func mapService(name string, raw serviceYAML, allowedRoots []string, workspaceDi
 			Host:      p.Host,
 		})
 	}
+	mapRuntimeContract(&svc, raw, workspaceDir)
 
 	var defaults languageDefaults
 	switch raw.Language {
@@ -198,11 +199,60 @@ func mapService(name string, raw serviceYAML, allowedRoots []string, workspaceDi
 	return svc, nil
 }
 
+func mapRuntimeContract(svc *domain.Service, raw serviceYAML, workspaceDir string) {
+	svc.Env = raw.Env
+	if svc.Env == nil {
+		svc.Env = map[string]string{}
+	}
+
+	for _, item := range raw.EnvFrom {
+		svc.EnvFrom = append(svc.EnvFrom, domain.EnvFrom{
+			File:     resolveWorkspacePath(workspaceDir, item.File),
+			Optional: item.Optional,
+		})
+	}
+	for _, item := range raw.Files {
+		svc.Files = append(svc.Files, domain.FileMount{
+			Source: resolveWorkspacePath(workspaceDir, item.Source),
+			Target: item.Target,
+			Mode:   item.Mode,
+		})
+	}
+	for _, item := range raw.Secrets {
+		svc.Secrets = append(svc.Secrets, domain.SecretEnv{
+			Name:     item.Name,
+			FromFile: resolveWorkspacePath(workspaceDir, item.FromFile),
+		})
+	}
+	for _, item := range raw.SecretFiles {
+		svc.SecretFiles = append(svc.SecretFiles, domain.FileMount{
+			Source: resolveWorkspacePath(workspaceDir, item.Source),
+			Target: item.Target,
+			Mode:   item.Mode,
+		})
+	}
+	for _, item := range raw.Volumes {
+		source := item.Source
+		if isRelativeHostPath(source) {
+			source = resolveWorkspacePath(workspaceDir, source)
+		}
+		svc.Volumes = append(svc.Volumes, domain.VolumeMount{
+			Source: source,
+			Target: item.Target,
+		})
+	}
+	svc.DependsOn = append([]string(nil), raw.DependsOn...)
+}
+
 func resolveWorkspacePath(workspaceDir string, path string) string {
 	if filepath.IsAbs(path) {
 		return filepath.Clean(path)
 	}
 	return filepath.Clean(filepath.Join(workspaceDir, path))
+}
+
+func isRelativeHostPath(path string) bool {
+	return strings.HasPrefix(path, "./") || strings.HasPrefix(path, "../")
 }
 
 func portRangeStart(raw string, fallback int) int {

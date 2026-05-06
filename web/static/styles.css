@@ -96,3 +96,44 @@ body {
   border-radius: 4px;
   min-height: 100px;
 }
+
+.config-view {
+  overflow: auto;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+.config-view h3 {
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+
+.config-view h4 {
+  font-size: 12px;
+  margin: 12px 0 6px;
+  color: #555;
+}
+
+.config-view table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 18px;
+  font-size: 13px;
+}
+
+.config-view th,
+.config-view td {
+  border-bottom: 1px solid #d8dee4;
+  padding: 8px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.config-view th {
+  color: #57606a;
+  font-weight: 600;
+}
+
+.config-view pre {
+  font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+  white-space: pre-wrap;
+}

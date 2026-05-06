@@ -98,6 +98,61 @@ func TestGenerateComposeIncludesDevRunnerVolumesPortsAndAddons(t *testing.T) {
 	}
 }
 
+func TestGenerateComposeIncludesRuntimeContractConfig(t *testing.T) {
+	ws := domain.Workspace{
+		Name: "contract-ws",
+		Runtime: domain.RuntimeConfig{
+			Type:        "docker-compose",
+			ProjectName: "contract-ws",
+			Network:     "contract-ws-default",
+		},
+		Services: map[string]domain.Service{
+			"user-api": {
+				Name:     "user-api",
+				Language: "go",
+				RepoPath: "/data/repos/user-api",
+				Workdir:  "/workspace",
+				Image:    "onespace/go-dev:1.23",
+				Env: map[string]string{
+					"APP_ENV": "local",
+				},
+				Files: []domain.FileMount{
+					{Source: "/data/workspace/config/local.yaml", Target: "/etc/user-api/config.yaml", Mode: "0444"},
+				},
+				SecretFiles: []domain.FileMount{
+					{Source: "/data/workspace/.secrets/client.key", Target: "/etc/user-api/client.key", Mode: "0400"},
+				},
+				Volumes: []domain.VolumeMount{
+					{Source: "onespace-user-api-cache", Target: "/workspace/.cache"},
+				},
+				DependsOn: []string{"redis"},
+			},
+		},
+		Addons: map[string]domain.Addon{
+			"redis": {Image: "redis:7-alpine"},
+		},
+	}
+
+	data, err := GenerateCompose(ws)
+	if err != nil {
+		t.Fatalf("GenerateCompose: %v", err)
+	}
+	yamlStr := string(data)
+
+	for _, want := range []string{
+		"APP_ENV: local",
+		"/data/workspace/config/local.yaml:/etc/user-api/config.yaml:ro",
+		"/data/workspace/.secrets/client.key:/etc/user-api/client.key:ro",
+		"onespace-user-api-cache:/workspace/.cache",
+		"depends_on:",
+		"- redis",
+	} {
+		if !strings.Contains(yamlStr, want) {
+			t.Fatalf("compose YAML missing %q:\n%s", want, yamlStr)
+		}
+	}
+}
+
 func TestExecStartsServiceBeforeDockerExec(t *testing.T) {
 	var calls []string
 	runner := &FakeCommandRunner{
