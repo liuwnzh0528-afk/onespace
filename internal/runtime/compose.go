@@ -9,6 +9,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/wnzhone/onespace/internal/appcontract"
 	"github.com/wnzhone/onespace/internal/domain"
 )
 
@@ -17,9 +18,13 @@ func GenerateCompose(ws domain.Workspace) ([]byte, error) {
 	if projectName == "" {
 		projectName = ws.Name
 	}
+	services, err := buildServices(ws)
+	if err != nil {
+		return nil, err
+	}
 	compose := map[string]interface{}{
 		"name":     projectName,
-		"services": buildServices(ws),
+		"services": services,
 		"networks": map[string]interface{}{
 			ws.Runtime.Network: map[string]interface{}{
 				"external": false,
@@ -35,15 +40,20 @@ func GenerateCompose(ws domain.Workspace) ([]byte, error) {
 	return yaml.Marshal(compose)
 }
 
-func buildServices(ws domain.Workspace) map[string]interface{} {
+func buildServices(ws domain.Workspace) (map[string]interface{}, error) {
 	services := make(map[string]interface{})
+	composer := appcontract.Composer{Workspace: ws}
 
 	for name, svc := range ws.Services {
+		cfg, err := composer.ComposeService(name)
+		if err != nil {
+			return nil, err
+		}
 		serviceDef := map[string]interface{}{
 			"image":       svc.Image,
 			"working_dir": svc.Workdir,
 			"command":     []string{"sleep", "infinity"},
-			"volumes":     []string{svc.RepoPath + ":" + svc.Workdir},
+			"volumes":     buildServiceVolumes(svc, cfg),
 			"networks":    []string{ws.Runtime.Network},
 		}
 
@@ -52,9 +62,12 @@ func buildServices(ws domain.Workspace) map[string]interface{} {
 			serviceDef["ports"] = ports
 		}
 
-		env := buildServiceEnv(svc)
-		if len(env) > 0 {
-			serviceDef["environment"] = env
+		if len(cfg.RuntimeEnv) > 0 {
+			serviceDef["environment"] = cfg.RuntimeEnv
+		}
+
+		if len(cfg.DependsOn) > 0 {
+			serviceDef["depends_on"] = cfg.DependsOn
 		}
 
 		services[name] = serviceDef
@@ -74,7 +87,7 @@ func buildServices(ws domain.Workspace) map[string]interface{} {
 		services[name] = addonDef
 	}
 
-	return services
+	return services, nil
 }
 
 func buildPortMappings(svc domain.Service) []string {
@@ -88,17 +101,15 @@ func buildPortMappings(svc domain.Service) []string {
 	return ports
 }
 
-func buildServiceEnv(svc domain.Service) map[string]string {
-	env := map[string]string{
-		"ONESPACE_STATE_DIR": svc.Workdir + "/.onespace",
+func buildServiceVolumes(svc domain.Service, cfg appcontract.ServiceConfig) []string {
+	volumes := []string{svc.RepoPath + ":" + svc.Workdir}
+	for _, file := range cfg.Files {
+		volumes = append(volumes, file.Source+":"+file.Target+":ro")
 	}
-	switch svc.Language {
-	case "go":
-		env["PATH"] = "/go/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-	case "java-maven":
-		env["PATH"] = "/opt/java/openjdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	for _, volume := range cfg.Volumes {
+		volumes = append(volumes, volume.Source+":"+volume.Target)
 	}
-	return env
+	return volumes
 }
 
 func buildVolumes(ws domain.Workspace) map[string]interface{} {
@@ -109,6 +120,11 @@ func buildVolumes(ws domain.Workspace) map[string]interface{} {
 			volumes["go-cache-"+svc.Name] = map[string]interface{}{}
 		case "java-maven":
 			volumes["maven-cache-"+svc.Name] = map[string]interface{}{}
+		}
+		for _, volume := range svc.Volumes {
+			if !strings.HasPrefix(volume.Source, "/") {
+				volumes[volume.Source] = map[string]interface{}{}
+			}
 		}
 	}
 	return volumes
