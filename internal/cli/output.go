@@ -52,3 +52,34 @@ func WriteServicesTable(w io.Writer, services []ServiceSummary) error {
 	}
 	return nil
 }
+
+func WriteConfigText(w io.Writer, cfg ServiceConfig) error {
+	fmt.Fprintf(w, "SERVICE %s\n\n", cfg.Service)
+	fmt.Fprintln(w, "ENV")
+	for _, entry := range cfg.Env {
+		secret := ""
+		if entry.Secret {
+			secret = " secret"
+		}
+		fmt.Fprintf(w, "%-24s %-16s %s%s\n", entry.Name, entry.Value, entry.Source, secret)
+	}
+	fmt.Fprintln(w, "\nFILES")
+	for _, file := range cfg.Files {
+		secret := ""
+		if file.Secret {
+			secret = " secret"
+		}
+		fmt.Fprintf(w, "%-32s %-32s %s%s\n", file.Target, file.Source, file.Mode, secret)
+	}
+	fmt.Fprintln(w, "\nVOLUMES")
+	for _, volume := range cfg.Volumes {
+		fmt.Fprintf(w, "%-32s %-32s %s\n", volume.Target, volume.Source, volume.Type)
+	}
+	if len(cfg.DependsOn) > 0 {
+		fmt.Fprintln(w, "\nDEPENDS ON")
+		for _, dep := range cfg.DependsOn {
+			fmt.Fprintln(w, dep)
+		}
+	}
+	return nil
+}

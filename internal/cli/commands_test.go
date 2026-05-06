@@ -205,3 +205,29 @@ func TestStatusCommandPrintsServiceSummary(t *testing.T) {
 		t.Fatalf("expected user-api in output, got: %s", stdout.String())
 	}
 }
+
+func TestConfigCommandPrintsJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/services/user-api/config" {
+			t.Fatalf("path = %q, want /api/services/user-api/config", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"service":"user-api","env":[{"name":"DB_PASSWORD","value":"******","source":".secrets/db_password","secret":true}],"files":[],"volumes":[],"dependsOn":[]}`))
+	}))
+	defer server.Close()
+
+	var stdout, stderr strings.Builder
+	code := Run([]string{"config", "user-api", "--json"}, &stdout, &stderr, func(key string) string {
+		if key == "ONESPACE_URL" {
+			return server.URL
+		}
+		return ""
+	})
+
+	if code != 0 {
+		t.Fatalf("code = %d, want 0; stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"DB_PASSWORD"`) || !strings.Contains(stdout.String(), `"******"`) {
+		t.Fatalf("stdout = %s, want redacted config JSON", stdout.String())
+	}
+}
