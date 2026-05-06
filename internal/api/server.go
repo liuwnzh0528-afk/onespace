@@ -49,6 +49,7 @@ func NewServer(workspace domain.Workspace, ops Operations, jobStore jobs.Store, 
 func (s *Server) registerRoutes() {
 	s.Mux.HandleFunc("GET /api/services", s.handleGetServices)
 	s.Mux.HandleFunc("GET /api/services/{service}", s.handleGetService)
+	s.Mux.HandleFunc("GET /api/services/{service}/config", s.handleGetServiceConfig)
 	s.Mux.HandleFunc("GET /api/services/{service}/logs", s.handleGetServiceLogs)
 	s.Mux.HandleFunc("GET /api/services/{service}/health", s.handleGetServiceHealth)
 	s.Mux.HandleFunc("POST /api/services/{service}/pull", s.handlePostPull)
