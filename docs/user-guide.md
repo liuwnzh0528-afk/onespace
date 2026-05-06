@@ -199,6 +199,33 @@ services:
 - `repoPath` 可以是绝对路径，也可以是相对 workspace root 的路径。
 - `repoPath` 必须位于任意一个 `allowedRepoRoots` 下，否则 daemon 启动失败。
 
+### 运行配置契约
+
+服务可以声明环境变量、环境文件、配置文件、secret 文件、volume 和启动依赖：
+
+```yaml
+env:
+  APP_ENV: local
+envFrom:
+  - file: .env
+  - file: .env.local
+    optional: true
+files:
+  - source: config/local.yaml
+    target: /etc/user-api/config.yaml
+    mode: "0444"
+secrets:
+  - name: DB_PASSWORD
+    fromFile: .secrets/db_password.example
+volumes:
+  - source: onespace-user-api-cache
+    target: /workspace/.cache
+dependsOn:
+  - redis
+```
+
+`onespace config <service> --json` 可以查看最终配置及来源。Secret 值在 CLI、API 和 Web UI 中显示为 `******`。
+
 ### 服务语言
 
 当前支持：

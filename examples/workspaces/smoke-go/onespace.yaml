@@ -7,6 +7,24 @@ services:
     language: go
     repoPath: repos/user-api
     main: ./cmd/user-api
+    env:
+      APP_ENV: local
+    envFrom:
+      - file: .env
+      - file: .env.local
+        optional: true
+    files:
+      - source: config/local.yaml
+        target: /etc/user-api/config.yaml
+        mode: "0444"
+    secrets:
+      - name: DB_PASSWORD
+        fromFile: .secrets/db_password.example
+    volumes:
+      - source: onespace-smoke-user-api-cache
+        target: /workspace/.cache
+    dependsOn:
+      - redis
     ports:
       - name: http
         container: 8080
@@ -17,3 +35,7 @@ services:
       timeoutSeconds: 30
     debug:
       port: 40001
+
+addons:
+  redis:
+    image: redis:7-alpine
