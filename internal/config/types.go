@@ -27,16 +27,23 @@ type portRangesYAML struct {
 }
 
 type serviceYAML struct {
-	Language string      `yaml:"language"`
-	RepoPath string      `yaml:"repoPath"`
-	Workdir  string      `yaml:"workdir"`
-	Image    string      `yaml:"image"`
-	Main     string      `yaml:"main"`
-	Ports    []portYAML  `yaml:"ports"`
-	Health   healthYAML  `yaml:"health"`
-	Build    commandYAML `yaml:"build"`
-	Run      commandYAML `yaml:"run"`
-	Debug    debugYAML   `yaml:"debug"`
+	Language    string            `yaml:"language"`
+	RepoPath    string            `yaml:"repoPath"`
+	Workdir     string            `yaml:"workdir"`
+	Image       string            `yaml:"image"`
+	Main        string            `yaml:"main"`
+	Ports       []portYAML        `yaml:"ports"`
+	Health      healthYAML        `yaml:"health"`
+	Build       commandYAML       `yaml:"build"`
+	Run         commandYAML       `yaml:"run"`
+	Debug       debugYAML         `yaml:"debug"`
+	Env         map[string]string `yaml:"env"`
+	EnvFrom     []envFromYAML     `yaml:"envFrom"`
+	Files       []fileYAML        `yaml:"files"`
+	Secrets     []secretEnvYAML   `yaml:"secrets"`
+	SecretFiles []fileYAML        `yaml:"secretFiles"`
+	Volumes     []volumeYAML      `yaml:"volumes"`
+	DependsOn   []string          `yaml:"dependsOn"`
 }
 
 type portYAML struct {
@@ -59,6 +66,27 @@ type debugYAML struct {
 	Port         int    `yaml:"port"`
 	BuildCommand string `yaml:"buildCommand"`
 	Command      string `yaml:"command"`
+}
+
+type envFromYAML struct {
+	File     string `yaml:"file"`
+	Optional bool   `yaml:"optional"`
+}
+
+type fileYAML struct {
+	Source string `yaml:"source"`
+	Target string `yaml:"target"`
+	Mode   string `yaml:"mode"`
+}
+
+type secretEnvYAML struct {
+	Name     string `yaml:"name"`
+	FromFile string `yaml:"fromFile"`
+}
+
+type volumeYAML struct {
+	Source string `yaml:"source"`
+	Target string `yaml:"target"`
 }
 
 type addonYAML struct {
