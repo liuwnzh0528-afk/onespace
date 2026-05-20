@@ -27,10 +27,12 @@ type portRangesYAML struct {
 }
 
 type serviceYAML struct {
+	Kind        string            `yaml:"kind"`
 	Language    string            `yaml:"language"`
 	RepoPath    string            `yaml:"repoPath"`
 	Workdir     string            `yaml:"workdir"`
 	Image       string            `yaml:"image"`
+	Command     string            `yaml:"command"`
 	Main        string            `yaml:"main"`
 	Ports       []portYAML        `yaml:"ports"`
 	Health      healthYAML        `yaml:"health"`
@@ -50,6 +52,7 @@ type portYAML struct {
 	Name      string `yaml:"name"`
 	Container int    `yaml:"container"`
 	Host      int    `yaml:"host"`
+	Protocol  string `yaml:"protocol"`
 }
 
 type healthYAML struct {

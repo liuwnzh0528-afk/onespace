@@ -49,27 +49,7 @@ func buildServices(ws domain.Workspace) (map[string]interface{}, error) {
 		if err != nil {
 			return nil, err
 		}
-		serviceDef := map[string]interface{}{
-			"image":       svc.Image,
-			"working_dir": svc.Workdir,
-			"command":     []string{"sleep", "infinity"},
-			"volumes":     buildServiceVolumes(svc, cfg),
-			"networks":    []string{ws.Runtime.Network},
-		}
-
-		ports := buildPortMappings(svc)
-		if len(ports) > 0 {
-			serviceDef["ports"] = ports
-		}
-
-		if len(cfg.RuntimeEnv) > 0 {
-			serviceDef["environment"] = cfg.RuntimeEnv
-		}
-
-		if len(cfg.DependsOn) > 0 {
-			serviceDef["depends_on"] = cfg.DependsOn
-		}
-
+		serviceDef := buildServiceDef(ws, svc, cfg)
 		services[name] = serviceDef
 	}
 
@@ -90,10 +70,52 @@ func buildServices(ws domain.Workspace) (map[string]interface{}, error) {
 	return services, nil
 }
 
+func buildServiceDef(ws domain.Workspace, svc domain.Service, cfg appcontract.ServiceConfig) map[string]interface{} {
+	serviceDef := map[string]interface{}{
+		"image":    svc.Image,
+		"networks": []string{ws.Runtime.Network},
+	}
+
+	if svc.Kind != domain.ServiceKindContainer {
+		serviceDef["working_dir"] = svc.Workdir
+		serviceDef["command"] = []string{"sleep", "infinity"}
+	}
+	if svc.Kind == domain.ServiceKindContainer && svc.Workdir != "" {
+		serviceDef["working_dir"] = svc.Workdir
+	}
+	if svc.Kind == domain.ServiceKindContainer && svc.ContainerCommand != "" {
+		serviceDef["command"] = svc.ContainerCommand
+	}
+
+	volumes := buildServiceVolumes(svc, cfg)
+	if len(volumes) > 0 {
+		serviceDef["volumes"] = volumes
+	}
+
+	ports := buildPortMappings(svc)
+	if len(ports) > 0 {
+		serviceDef["ports"] = ports
+	}
+
+	if len(cfg.RuntimeEnv) > 0 {
+		serviceDef["environment"] = cfg.RuntimeEnv
+	}
+
+	if len(cfg.DependsOn) > 0 {
+		serviceDef["depends_on"] = cfg.DependsOn
+	}
+
+	return serviceDef
+}
+
 func buildPortMappings(svc domain.Service) []string {
 	var ports []string
 	for _, p := range svc.Ports {
-		ports = append(ports, fmt.Sprintf("%d:%d", p.Host, p.Container))
+		mapping := fmt.Sprintf("%d:%d", p.Host, p.Container)
+		if p.Protocol == "udp" {
+			mapping += "/udp"
+		}
+		ports = append(ports, mapping)
 	}
 	if svc.Debug.Port != 0 {
 		ports = append(ports, fmt.Sprintf("%d:%d", svc.Debug.Port, svc.Debug.Port))
@@ -102,7 +124,10 @@ func buildPortMappings(svc domain.Service) []string {
 }
 
 func buildServiceVolumes(svc domain.Service, cfg appcontract.ServiceConfig) []string {
-	volumes := []string{svc.RepoPath + ":" + svc.Workdir}
+	var volumes []string
+	if svc.Kind != domain.ServiceKindContainer {
+		volumes = append(volumes, svc.RepoPath+":"+svc.Workdir)
+	}
 	for _, file := range cfg.Files {
 		volumes = append(volumes, file.Source+":"+file.Target+":ro")
 	}
@@ -151,6 +176,50 @@ func (r *ComposeRuntime) Ensure(ctx context.Context, workspaceRoot string) error
 		return fmt.Errorf("docker compose ensure: %w: %s", err, stderr.String())
 	}
 	return nil
+}
+
+func (r *ComposeRuntime) UpService(ctx context.Context, workspaceRoot string, service string) error {
+	var stdout, stderr strings.Builder
+	args := []string{"compose", "-f", "generated/docker-compose.yml", "up", "-d", service}
+	err := r.Runner.Run(ctx, workspaceRoot, "docker", args, &stdout, &stderr)
+	if err != nil {
+		return fmt.Errorf("docker compose up %s: %w: %s", service, err, stderr.String())
+	}
+	return nil
+}
+
+func (r *ComposeRuntime) RestartService(ctx context.Context, workspaceRoot string, service string) error {
+	var stdout, stderr strings.Builder
+	args := []string{"compose", "-f", "generated/docker-compose.yml", "restart", service}
+	err := r.Runner.Run(ctx, workspaceRoot, "docker", args, &stdout, &stderr)
+	if err != nil {
+		return fmt.Errorf("docker compose restart %s: %w: %s", service, err, stderr.String())
+	}
+	return nil
+}
+
+func (r *ComposeRuntime) StopService(ctx context.Context, workspaceRoot string, service string) error {
+	var stdout, stderr strings.Builder
+	args := []string{"compose", "-f", "generated/docker-compose.yml", "stop", service}
+	err := r.Runner.Run(ctx, workspaceRoot, "docker", args, &stdout, &stderr)
+	if err != nil {
+		return fmt.Errorf("docker compose stop %s: %w: %s", service, err, stderr.String())
+	}
+	return nil
+}
+
+func (r *ComposeRuntime) ServiceLogs(ctx context.Context, workspaceRoot string, service string, tail int) ([]string, error) {
+	var stdout, stderr strings.Builder
+	args := []string{"compose", "-f", "generated/docker-compose.yml", "logs", "--no-color", "--no-log-prefix", "--tail", fmt.Sprintf("%d", tail), service}
+	err := r.Runner.Run(ctx, workspaceRoot, "docker", args, &stdout, &stderr)
+	if err != nil {
+		return nil, fmt.Errorf("docker compose logs %s: %w: %s", service, err, stderr.String())
+	}
+	content := strings.TrimRight(stdout.String(), "\n")
+	if content == "" {
+		return nil, nil
+	}
+	return strings.Split(content, "\n"), nil
 }
 
 // ensureServiceRunning starts the service container if it is not already running.

@@ -37,6 +37,9 @@ func (m *Manager) deploy(ctx context.Context, service string) (Result, error) {
 	if !ok {
 		return Result{Service: service, Status: "failed", Stage: "validate"}, fmt.Errorf("service %q not found", service)
 	}
+	if isContainerService(svc) {
+		return m.deployContainer(ctx, service, svc)
+	}
 
 	// git-status
 	gitStatus, err := m.Git.Status(ctx, svc.RepoPath)
@@ -85,6 +88,26 @@ func (m *Manager) deploy(ctx context.Context, service string) (Result, error) {
 	return result, nil
 }
 
+func (m *Manager) deployContainer(ctx context.Context, service string, svc domain.Service) (Result, error) {
+	if err := m.Runtime.UpService(ctx, m.Workspace.Path, service); err != nil {
+		return Result{Service: service, Status: "failed", Stage: "start-container", Container: "unknown"}, err
+	}
+
+	var healthResult health.Result
+	if svc.Health.Type != "" {
+		healthResult = m.Health.Check(ctx, svc.Health)
+	}
+
+	return Result{
+		Service:   service,
+		Status:    "success",
+		Stage:     "done",
+		Container: "running",
+		Health:    healthResult.Status,
+		URL:       svc.Health.URL,
+	}, nil
+}
+
 func (m *Manager) Debug(ctx context.Context, service string) (Result, error) {
 	return m.runMutatingJob(ctx, service, jobs.TypeDebug, m.debug)
 }
@@ -93,6 +116,9 @@ func (m *Manager) debug(ctx context.Context, service string) (Result, error) {
 	svc, ok := m.Workspace.Services[service]
 	if !ok {
 		return Result{Service: service, Status: "failed"}, fmt.Errorf("service %q not found", service)
+	}
+	if isContainerService(svc) {
+		return unsupportedContainerOperation(service, "debug")
 	}
 
 	if err := m.Runtime.Ensure(ctx, m.Workspace.Path); err != nil {
@@ -138,6 +164,9 @@ func (m *Manager) pull(ctx context.Context, service string) (Result, error) {
 	if !ok {
 		return Result{Service: service, Status: "failed"}, fmt.Errorf("service %q not found", service)
 	}
+	if isContainerService(svc) {
+		return unsupportedContainerOperation(service, "pull")
+	}
 
 	pullResult, err := m.Git.PullFastForwardOnly(ctx, svc.RepoPath)
 	if err != nil {
@@ -168,6 +197,9 @@ func (m *Manager) build(ctx context.Context, service string) (Result, error) {
 	if !ok {
 		return Result{Service: service, Status: "failed"}, fmt.Errorf("service %q not found", service)
 	}
+	if isContainerService(svc) {
+		return unsupportedContainerOperation(service, "build")
+	}
 
 	if err := m.Runtime.Ensure(ctx, m.Workspace.Path); err != nil {
 		return Result{Service: service, Status: "failed", Stage: "ensure-container"}, err
@@ -193,6 +225,12 @@ func (m *Manager) restart(ctx context.Context, service string) (Result, error) {
 	if !ok {
 		return Result{Service: service, Status: "failed"}, fmt.Errorf("service %q not found", service)
 	}
+	if isContainerService(svc) {
+		if err := m.Runtime.RestartService(ctx, m.Workspace.Path, service); err != nil {
+			return Result{Service: service, Status: "failed", Stage: "restart", Container: "unknown"}, err
+		}
+		return Result{Service: service, Status: "success", Stage: "restart", Container: "running"}, nil
+	}
 
 	_ = m.Runtime.StopProcess(ctx, m.Workspace.Path, service)
 
@@ -208,10 +246,43 @@ func (m *Manager) Stop(ctx context.Context, service string) (Result, error) {
 }
 
 func (m *Manager) stop(ctx context.Context, service string) (Result, error) {
+	svc, ok := m.Workspace.Services[service]
+	if !ok {
+		return Result{Service: service, Status: "failed"}, fmt.Errorf("service %q not found", service)
+	}
+	if isContainerService(svc) {
+		if err := m.Runtime.StopService(ctx, m.Workspace.Path, service); err != nil {
+			return Result{Service: service, Status: "failed", Stage: "stop", Container: "unknown"}, err
+		}
+		return Result{Service: service, Status: "success", Stage: "stop", Container: "stopped"}, nil
+	}
 	if err := m.Runtime.StopProcess(ctx, m.Workspace.Path, service); err != nil {
 		return Result{Service: service, Status: "failed", Stage: "stop"}, err
 	}
 	return Result{Service: service, Status: "success", Stage: "stop"}, nil
+}
+
+func (m *Manager) ServiceLogs(ctx context.Context, service string, tail int) ([]string, error) {
+	svc, ok := m.Workspace.Services[service]
+	if !ok {
+		return nil, fmt.Errorf("service %q not found", service)
+	}
+	if !isContainerService(svc) {
+		return nil, nil
+	}
+	return m.Runtime.ServiceLogs(ctx, m.Workspace.Path, service, tail)
+}
+
+func isContainerService(svc domain.Service) bool {
+	return svc.Kind == domain.ServiceKindContainer
+}
+
+func unsupportedContainerOperation(service string, op string) (Result, error) {
+	return Result{
+		Service: service,
+		Status:  "failed",
+		Stage:   "unsupported",
+	}, fmt.Errorf("%s is unsupported for container service %q", op, service)
 }
 
 func (m *Manager) runMutatingJob(ctx context.Context, service string, jobType jobs.Type, fn func(context.Context, string) (Result, error)) (Result, error) {

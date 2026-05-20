@@ -227,3 +227,50 @@ addons:
 		t.Fatalf("DependsOn = %#v, want redis", svc.DependsOn)
 	}
 }
+
+func TestLoadWorkspaceLoadsContainerServiceWithoutRepoRoot(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "onespace.yaml")
+	yaml := `
+version: 1
+name: metal-forge-dev
+services:
+  bmc-a:
+    kind: container
+    image: metal-forge/mock-ipmi:dev
+    command: python3 /app/server.py
+    env:
+      MOCK_IPMI_NAME: bmc-a
+      MOCK_IPMI_INITIAL_POWER: "off"
+    ports:
+      - name: ipmi
+        container: 623
+        host: 6230
+        protocol: udp
+`
+	if err := os.WriteFile(configPath, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ws, err := LoadWorkspace(configPath)
+	if err != nil {
+		t.Fatalf("LoadWorkspace returned error: %v", err)
+	}
+
+	svc := ws.Services["bmc-a"]
+	if svc.Kind != "container" {
+		t.Fatalf("Kind = %q, want container", svc.Kind)
+	}
+	if svc.Language != "" || svc.RepoPath != "" {
+		t.Fatalf("container service should not require language/repoPath: %+v", svc)
+	}
+	if svc.Image != "metal-forge/mock-ipmi:dev" {
+		t.Fatalf("Image = %q, want metal-forge/mock-ipmi:dev", svc.Image)
+	}
+	if svc.ContainerCommand != "python3 /app/server.py" {
+		t.Fatalf("ContainerCommand = %q, want command override", svc.ContainerCommand)
+	}
+	if len(svc.Ports) != 1 || svc.Ports[0].Protocol != "udp" {
+		t.Fatalf("Ports = %#v, want UDP port mapping", svc.Ports)
+	}
+}

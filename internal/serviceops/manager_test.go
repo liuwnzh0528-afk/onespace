@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/wnzhone/onespace/internal/domain"
@@ -264,5 +265,130 @@ func TestPullRefusesDirtyRepo(t *testing.T) {
 	_, err := mgr.Pull(context.Background(), "user-api")
 	if err == nil {
 		t.Fatal("expected error for dirty repo")
+	}
+}
+
+func TestDeployContainerServiceStartsComposeServiceWithoutGitOrBuild(t *testing.T) {
+	ws := testWorkspace()
+	ws.Services["bmc-a"] = domain.Service{
+		Name:  "bmc-a",
+		Kind:  "container",
+		Image: "metal-forge/mock-ipmi:dev",
+		Ports: []domain.Port{
+			{Name: "ipmi", Container: 623, Host: 6230, Protocol: "udp"},
+		},
+	}
+	delete(ws.Services, "user-api")
+
+	var calls []string
+	fakeRT := &runtime.FakeRuntime{
+		UpServiceFunc: func(ctx context.Context, workspaceRoot string, service string) error {
+			calls = append(calls, "up:"+service)
+			return nil
+		},
+		ExecFunc: func(ctx context.Context, opts runtime.ExecOptions) error {
+			t.Fatalf("container deploy should not exec build command: %+v", opts)
+			return nil
+		},
+	}
+	mgr := &Manager{
+		Workspace: ws,
+		Git:       &fakeGit{statusErr: errors.New("git should not be called")},
+		Runtime:   fakeRT,
+		Health:    health.Checker{},
+	}
+
+	result, err := mgr.Deploy(context.Background(), "bmc-a")
+	if err != nil {
+		t.Fatalf("Deploy error: %v", err)
+	}
+	if result.Status != "success" || result.Stage != "done" || result.Container != "running" {
+		t.Fatalf("result = %+v, want successful running container", result)
+	}
+	if strings.Join(calls, ",") != "up:bmc-a" {
+		t.Fatalf("calls = %v, want only compose up", calls)
+	}
+}
+
+func TestRestartAndStopContainerServiceUseComposeServiceLifecycle(t *testing.T) {
+	ws := testWorkspace()
+	ws.Services["bmc-a"] = domain.Service{Name: "bmc-a", Kind: "container", Image: "metal-forge/mock-ipmi:dev"}
+	delete(ws.Services, "user-api")
+
+	var calls []string
+	fakeRT := &runtime.FakeRuntime{
+		RestartServiceFunc: func(ctx context.Context, workspaceRoot string, service string) error {
+			calls = append(calls, "restart:"+service)
+			return nil
+		},
+		StopServiceFunc: func(ctx context.Context, workspaceRoot string, service string) error {
+			calls = append(calls, "stop:"+service)
+			return nil
+		},
+		StopProcessFunc: func(ctx context.Context, workspaceRoot string, service string) error {
+			t.Fatalf("container lifecycle should not call supervisor stop")
+			return nil
+		},
+	}
+	mgr := &Manager{Workspace: ws, Runtime: fakeRT}
+
+	restartResult, err := mgr.Restart(context.Background(), "bmc-a")
+	if err != nil {
+		t.Fatalf("Restart error: %v", err)
+	}
+	stopResult, err := mgr.Stop(context.Background(), "bmc-a")
+	if err != nil {
+		t.Fatalf("Stop error: %v", err)
+	}
+
+	if restartResult.Stage != "restart" || stopResult.Stage != "stop" {
+		t.Fatalf("restart=%+v stop=%+v, want restart/stop stages", restartResult, stopResult)
+	}
+	if strings.Join(calls, ",") != "restart:bmc-a,stop:bmc-a" {
+		t.Fatalf("calls = %v, want compose restart then stop", calls)
+	}
+}
+
+func TestBuildDebugAndPullAreUnsupportedForContainerService(t *testing.T) {
+	ws := testWorkspace()
+	ws.Services["bmc-a"] = domain.Service{Name: "bmc-a", Kind: "container", Image: "metal-forge/mock-ipmi:dev"}
+	delete(ws.Services, "user-api")
+	mgr := &Manager{Workspace: ws, Runtime: &runtime.FakeRuntime{}, Git: &fakeGit{}}
+
+	for name, fn := range map[string]func(context.Context, string) (Result, error){
+		"build": mgr.Build,
+		"debug": mgr.Debug,
+		"pull":  mgr.Pull,
+	} {
+		result, err := fn(context.Background(), "bmc-a")
+		if err == nil {
+			t.Fatalf("%s: expected unsupported error", name)
+		}
+		if result.Status != "failed" || result.Stage != "unsupported" {
+			t.Fatalf("%s: result = %+v, want failed unsupported", name, result)
+		}
+	}
+}
+
+func TestContainerServiceLogsComeFromRuntime(t *testing.T) {
+	ws := testWorkspace()
+	ws.Services["bmc-a"] = domain.Service{Name: "bmc-a", Kind: "container", Image: "metal-forge/mock-ipmi:dev"}
+	delete(ws.Services, "user-api")
+	fakeRT := &runtime.FakeRuntime{
+		ServiceLogsFunc: func(ctx context.Context, workspaceRoot string, service string, tail int) ([]string, error) {
+			if service != "bmc-a" || tail != 2 {
+				t.Fatalf("service=%q tail=%d, want bmc-a tail 2", service, tail)
+			}
+			return []string{"serving mock IPMI", "power=off"}, nil
+		},
+	}
+	mgr := &Manager{Workspace: ws, Runtime: fakeRT}
+
+	lines, err := mgr.ServiceLogs(context.Background(), "bmc-a", 2)
+	if err != nil {
+		t.Fatalf("ServiceLogs error: %v", err)
+	}
+	if strings.Join(lines, "|") != "serving mock IPMI|power=off" {
+		t.Fatalf("lines = %v, want container logs", lines)
 	}
 }

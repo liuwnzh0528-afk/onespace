@@ -7,11 +7,15 @@ import (
 )
 
 type FakeRuntime struct {
-	EnsureFunc        func(ctx context.Context, workspaceRoot string) error
-	ExecFunc          func(ctx context.Context, opts ExecOptions) error
-	StopProcessFunc   func(ctx context.Context, workspaceRoot string, service string) error
-	StartProcessFunc  func(ctx context.Context, workspaceRoot string, service string, command string) error
-	ServiceStatusFunc func(ctx context.Context, workspaceRoot string, service string) (ServiceStatus, error)
+	EnsureFunc         func(ctx context.Context, workspaceRoot string) error
+	ExecFunc           func(ctx context.Context, opts ExecOptions) error
+	StopProcessFunc    func(ctx context.Context, workspaceRoot string, service string) error
+	StartProcessFunc   func(ctx context.Context, workspaceRoot string, service string, command string) error
+	UpServiceFunc      func(ctx context.Context, workspaceRoot string, service string) error
+	RestartServiceFunc func(ctx context.Context, workspaceRoot string, service string) error
+	StopServiceFunc    func(ctx context.Context, workspaceRoot string, service string) error
+	ServiceLogsFunc    func(ctx context.Context, workspaceRoot string, service string, tail int) ([]string, error)
+	ServiceStatusFunc  func(ctx context.Context, workspaceRoot string, service string) (ServiceStatus, error)
 }
 
 func (f *FakeRuntime) Ensure(ctx context.Context, workspaceRoot string) error {
@@ -40,6 +44,34 @@ func (f *FakeRuntime) StartProcess(ctx context.Context, workspaceRoot string, se
 		return f.StartProcessFunc(ctx, workspaceRoot, service, command)
 	}
 	return nil
+}
+
+func (f *FakeRuntime) UpService(ctx context.Context, workspaceRoot string, service string) error {
+	if f.UpServiceFunc != nil {
+		return f.UpServiceFunc(ctx, workspaceRoot, service)
+	}
+	return nil
+}
+
+func (f *FakeRuntime) RestartService(ctx context.Context, workspaceRoot string, service string) error {
+	if f.RestartServiceFunc != nil {
+		return f.RestartServiceFunc(ctx, workspaceRoot, service)
+	}
+	return nil
+}
+
+func (f *FakeRuntime) StopService(ctx context.Context, workspaceRoot string, service string) error {
+	if f.StopServiceFunc != nil {
+		return f.StopServiceFunc(ctx, workspaceRoot, service)
+	}
+	return nil
+}
+
+func (f *FakeRuntime) ServiceLogs(ctx context.Context, workspaceRoot string, service string, tail int) ([]string, error) {
+	if f.ServiceLogsFunc != nil {
+		return f.ServiceLogsFunc(ctx, workspaceRoot, service, tail)
+	}
+	return nil, nil
 }
 
 func (f *FakeRuntime) ServiceStatus(ctx context.Context, workspaceRoot string, service string) (ServiceStatus, error) {

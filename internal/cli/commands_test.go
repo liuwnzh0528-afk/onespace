@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -108,6 +109,69 @@ func TestDeployWaitJSONReturnsNonZeroOnFailure(t *testing.T) {
 	}
 }
 
+func TestBuildReturnsNonZeroWhenDaemonRejectsOperation(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/services/{service}/build", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(serviceops.Result{
+			Service: r.PathValue("service"),
+			Status:  "failed",
+			Stage:   "unsupported",
+		})
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	var stdout, stderr strings.Builder
+	code := Run([]string{"build", "bmc-a"}, &stdout, &stderr, func(key string) string {
+		if key == "ONESPACE_URL" {
+			return server.URL
+		}
+		return ""
+	})
+
+	if code == 0 {
+		t.Fatalf("expected non-zero exit code; stdout=%s stderr=%s", stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "HTTP 500") {
+		t.Fatalf("stderr = %q, want HTTP 500", stderr.String())
+	}
+}
+
+func TestRestartStopAndPullClientsReturnErrorsOnHTTPFailure(t *testing.T) {
+	mux := http.NewServeMux()
+	for _, path := range []string{
+		"/api/services/{service}/restart",
+		"/api/services/{service}/stop",
+		"/api/services/{service}/pull",
+	} {
+		mux.HandleFunc("POST "+path, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(serviceops.Result{
+				Service: r.PathValue("service"),
+				Status:  "failed",
+				Stage:   "unsupported",
+			})
+		})
+	}
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	client := Client{BaseURL: server.URL}
+	for name, fn := range map[string]func() (serviceops.Result, error){
+		"restart": func() (serviceops.Result, error) { return client.Restart(context.Background(), "bmc-a") },
+		"stop":    func() (serviceops.Result, error) { return client.Stop(context.Background(), "bmc-a") },
+		"pull":    func() (serviceops.Result, error) { return client.Pull(context.Background(), "bmc-a") },
+	} {
+		result, err := fn()
+		if err == nil {
+			t.Fatalf("%s: expected HTTP error, got result %+v", name, result)
+		}
+	}
+}
+
 func TestDebugCommandPostsDebugEndpoint(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/services/{service}/debug", func(w http.ResponseWriter, r *http.Request) {
@@ -203,6 +267,19 @@ func TestStatusCommandPrintsServiceSummary(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "user-api") {
 		t.Fatalf("expected user-api in output, got: %s", stdout.String())
+	}
+}
+
+func TestWriteServicesTableDisplaysContainerKindWhenLanguageIsEmpty(t *testing.T) {
+	var stdout strings.Builder
+	err := WriteServicesTable(&stdout, []ServiceSummary{
+		{Name: "bmc-a", Kind: "container", Image: "metal-forge/mock-ipmi:dev"},
+	})
+	if err != nil {
+		t.Fatalf("WriteServicesTable: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "container") {
+		t.Fatalf("expected container kind in output, got: %s", stdout.String())
 	}
 }
 

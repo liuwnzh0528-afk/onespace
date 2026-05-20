@@ -153,6 +153,109 @@ func TestGenerateComposeIncludesRuntimeContractConfig(t *testing.T) {
 	}
 }
 
+func TestGenerateComposeIncludesContainerServiceWithUDPPort(t *testing.T) {
+	ws := domain.Workspace{
+		Name: "metal-forge-dev",
+		Runtime: domain.RuntimeConfig{
+			Type:        "docker-compose",
+			ProjectName: "metal-forge-dev",
+			Network:     "metal-forge-dev-default",
+		},
+		Services: map[string]domain.Service{
+			"bmc-a": {
+				Name:             "bmc-a",
+				Kind:             "container",
+				Image:            "metal-forge/mock-ipmi:dev",
+				ContainerCommand: "python3 /app/server.py",
+				Env: map[string]string{
+					"MOCK_IPMI_NAME": "bmc-a",
+				},
+				Ports: []domain.Port{
+					{Name: "ipmi", Container: 623, Host: 6230, Protocol: "udp"},
+				},
+			},
+		},
+	}
+
+	data, err := GenerateCompose(ws)
+	if err != nil {
+		t.Fatalf("GenerateCompose: %v", err)
+	}
+	yamlStr := string(data)
+
+	for _, want := range []string{
+		"image: metal-forge/mock-ipmi:dev",
+		"command: python3 /app/server.py",
+		"MOCK_IPMI_NAME: bmc-a",
+		"6230:623/udp",
+	} {
+		if !strings.Contains(yamlStr, want) {
+			t.Fatalf("compose YAML missing %q:\n%s", want, yamlStr)
+		}
+	}
+	for _, notWant := range []string{
+		"sleep",
+		"/workspace",
+		"ONESPACE_STATE_DIR",
+		"go-cache-bmc-a",
+	} {
+		if strings.Contains(yamlStr, notWant) {
+			t.Fatalf("compose YAML contains dev-runner field %q:\n%s", notWant, yamlStr)
+		}
+	}
+}
+
+func TestComposeRuntimeServiceLifecycleUsesComposeServiceCommands(t *testing.T) {
+	var calls []string
+	runner := &FakeCommandRunner{
+		RunFunc: func(ctx context.Context, dir string, name string, args []string, stdout io.Writer, stderr io.Writer) error {
+			calls = append(calls, strings.Join(args, " "))
+			return nil
+		},
+	}
+	runtime := &ComposeRuntime{Runner: runner}
+
+	if err := runtime.UpService(context.Background(), "/workspace-root", "bmc-a"); err != nil {
+		t.Fatalf("UpService returned error: %v", err)
+	}
+	if err := runtime.RestartService(context.Background(), "/workspace-root", "bmc-a"); err != nil {
+		t.Fatalf("RestartService returned error: %v", err)
+	}
+	if err := runtime.StopService(context.Background(), "/workspace-root", "bmc-a"); err != nil {
+		t.Fatalf("StopService returned error: %v", err)
+	}
+
+	want := []string{
+		"compose -f generated/docker-compose.yml up -d bmc-a",
+		"compose -f generated/docker-compose.yml restart bmc-a",
+		"compose -f generated/docker-compose.yml stop bmc-a",
+	}
+	if strings.Join(calls, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("calls = %v, want %v", calls, want)
+	}
+}
+
+func TestComposeRuntimeServiceLogsReturnsTailWithoutComposePrefixes(t *testing.T) {
+	runner := &FakeCommandRunner{
+		RunFunc: func(ctx context.Context, dir string, name string, args []string, stdout io.Writer, stderr io.Writer) error {
+			if got := strings.Join(args, " "); got != "compose -f generated/docker-compose.yml logs --no-color --no-log-prefix --tail 2 bmc-a" {
+				t.Fatalf("args = %q, want compose logs tail", got)
+			}
+			_, _ = stdout.Write([]byte("line 1\nline 2\n"))
+			return nil
+		},
+	}
+	runtime := &ComposeRuntime{Runner: runner}
+
+	lines, err := runtime.ServiceLogs(context.Background(), "/workspace-root", "bmc-a", 2)
+	if err != nil {
+		t.Fatalf("ServiceLogs returned error: %v", err)
+	}
+	if strings.Join(lines, "|") != "line 1|line 2" {
+		t.Fatalf("lines = %v, want [line 1 line 2]", lines)
+	}
+}
+
 func TestExecStartsServiceBeforeDockerExec(t *testing.T) {
 	var calls []string
 	runner := &FakeCommandRunner{

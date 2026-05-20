@@ -18,6 +18,10 @@ type Runtime interface {
 	Exec(ctx context.Context, opts ExecOptions) error
 	StopProcess(ctx context.Context, workspaceRoot string, service string) error
 	StartProcess(ctx context.Context, workspaceRoot string, service string, command string) error
+	UpService(ctx context.Context, workspaceRoot string, service string) error
+	RestartService(ctx context.Context, workspaceRoot string, service string) error
+	StopService(ctx context.Context, workspaceRoot string, service string) error
+	ServiceLogs(ctx context.Context, workspaceRoot string, service string, tail int) ([]string, error)
 	ServiceStatus(ctx context.Context, workspaceRoot string, service string) (ServiceStatus, error)
 }
 

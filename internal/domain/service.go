@@ -1,31 +1,39 @@
 package domain
 
 type Service struct {
-	Name        string
-	Language    string
-	RepoPath    string
-	Workdir     string
-	Image       string
-	Main        string
-	Ports       []Port
-	Health      HealthCheck
-	Build       Command
-	Run         Command
-	Debug       DebugConfig
-	Env         map[string]string
-	EnvFrom     []EnvFrom
-	Files       []FileMount
-	Secrets     []SecretEnv
-	SecretFiles []FileMount
-	Volumes     []VolumeMount
-	DependsOn   []string
+	Name             string
+	Kind             string
+	Language         string
+	RepoPath         string
+	Workdir          string
+	Image            string
+	ContainerCommand string
+	Main             string
+	Ports            []Port
+	Health           HealthCheck
+	Build            Command
+	Run              Command
+	Debug            DebugConfig
+	Env              map[string]string
+	EnvFrom          []EnvFrom
+	Files            []FileMount
+	Secrets          []SecretEnv
+	SecretFiles      []FileMount
+	Volumes          []VolumeMount
+	DependsOn        []string
 }
 
 type Port struct {
 	Name      string
 	Container int
 	Host      int
+	Protocol  string
 }
+
+const (
+	ServiceKindDevRunner = "dev-runner"
+	ServiceKindContainer = "container"
+)
 
 type HealthCheck struct {
 	Type           string

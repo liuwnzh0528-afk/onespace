@@ -36,10 +36,6 @@ func LoadWorkspace(path string) (domain.Workspace, error) {
 	if raw.Name == "" {
 		return domain.Workspace{}, domain.ValidationError{Field: "name", Reason: "is required"}
 	}
-	if len(raw.AllowedRepoRoots) == 0 {
-		return domain.Workspace{}, domain.ValidationError{Field: "allowedRepoRoots", Reason: "at least one root is required"}
-	}
-
 	allowedRoots := make([]string, 0, len(raw.AllowedRepoRoots))
 	for _, root := range raw.AllowedRepoRoots {
 		allowedRoots = append(allowedRoots, resolveWorkspacePath(workspaceDir, root))
@@ -106,11 +102,73 @@ func LoadWorkspace(path string) (domain.Workspace, error) {
 }
 
 func mapService(name string, raw serviceYAML, allowedRoots []string, workspaceDir string, defaultDebugPort int) (domain.Service, error) {
+	kind := raw.Kind
+	if kind == "" {
+		kind = domain.ServiceKindDevRunner
+	}
+
+	svc := domain.Service{
+		Name:             name,
+		Kind:             kind,
+		Language:         raw.Language,
+		Workdir:          raw.Workdir,
+		Image:            raw.Image,
+		ContainerCommand: raw.Command,
+		Main:             raw.Main,
+		Health: domain.HealthCheck{
+			Type:           raw.Health.Type,
+			URL:            raw.Health.URL,
+			TimeoutSeconds: raw.Health.TimeoutSeconds,
+		},
+		Build: domain.Command{Command: raw.Build.Command},
+		Run:   domain.Command{Command: raw.Run.Command},
+	}
+
+	for _, p := range raw.Ports {
+		protocol := strings.ToLower(strings.TrimSpace(p.Protocol))
+		if protocol == "" {
+			protocol = "tcp"
+		}
+		if protocol != "tcp" && protocol != "udp" {
+			return domain.Service{}, domain.ValidationError{
+				Field:  "services." + name + ".ports." + p.Name + ".protocol",
+				Reason: fmt.Sprintf("unsupported protocol %q", p.Protocol),
+			}
+		}
+		svc.Ports = append(svc.Ports, domain.Port{
+			Name:      p.Name,
+			Container: p.Container,
+			Host:      p.Host,
+			Protocol:  protocol,
+		})
+	}
+	mapRuntimeContract(&svc, raw, workspaceDir)
+
+	switch kind {
+	case domain.ServiceKindContainer:
+		if svc.Image == "" {
+			return domain.Service{}, domain.ValidationError{Field: "services." + name + ".image", Reason: "is required for container services"}
+		}
+		return svc, nil
+	case domain.ServiceKindDevRunner:
+		return mapDevRunnerService(name, raw, allowedRoots, workspaceDir, defaultDebugPort, svc)
+	default:
+		return domain.Service{}, domain.ValidationError{
+			Field:  "services." + name + ".kind",
+			Reason: fmt.Sprintf("unsupported kind %q", kind),
+		}
+	}
+}
+
+func mapDevRunnerService(name string, raw serviceYAML, allowedRoots []string, workspaceDir string, defaultDebugPort int, svc domain.Service) (domain.Service, error) {
 	if raw.Language == "" {
 		return domain.Service{}, domain.ValidationError{Field: "services." + name + ".language", Reason: "is required"}
 	}
 	if raw.RepoPath == "" {
 		return domain.Service{}, domain.ValidationError{Field: "services." + name + ".repoPath", Reason: "is required"}
+	}
+	if len(allowedRoots) == 0 {
+		return domain.Service{}, domain.ValidationError{Field: "allowedRepoRoots", Reason: "at least one root is required for dev-runner services"}
 	}
 	repoPath := resolveWorkspacePath(workspaceDir, raw.RepoPath)
 	if !pathUnderAnyRoot(repoPath, allowedRoots) {
@@ -119,41 +177,17 @@ func mapService(name string, raw serviceYAML, allowedRoots []string, workspaceDi
 			Reason: fmt.Sprintf("%q is not under any allowedRepoRoot", repoPath),
 		}
 	}
+	svc.RepoPath = repoPath
 
 	debugPort := raw.Debug.Port
 	if debugPort == 0 {
 		debugPort = defaultDebugPort
 	}
-
-	svc := domain.Service{
-		Name:     name,
-		Language: raw.Language,
-		RepoPath: repoPath,
-		Workdir:  raw.Workdir,
-		Image:    raw.Image,
-		Main:     raw.Main,
-		Health: domain.HealthCheck{
-			Type:           raw.Health.Type,
-			URL:            raw.Health.URL,
-			TimeoutSeconds: raw.Health.TimeoutSeconds,
-		},
-		Build: domain.Command{Command: raw.Build.Command},
-		Run:   domain.Command{Command: raw.Run.Command},
-		Debug: domain.DebugConfig{
-			Port:         debugPort,
-			BuildCommand: raw.Debug.BuildCommand,
-			Command:      raw.Debug.Command,
-		},
+	svc.Debug = domain.DebugConfig{
+		Port:         debugPort,
+		BuildCommand: raw.Debug.BuildCommand,
+		Command:      raw.Debug.Command,
 	}
-
-	for _, p := range raw.Ports {
-		svc.Ports = append(svc.Ports, domain.Port{
-			Name:      p.Name,
-			Container: p.Container,
-			Host:      p.Host,
-		})
-	}
-	mapRuntimeContract(&svc, raw, workspaceDir)
 
 	var defaults languageDefaults
 	switch raw.Language {

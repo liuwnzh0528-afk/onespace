@@ -1,14 +1,16 @@
 # Onespace 用户指南
 
-Onespace 是一个单用户、单机 VM 使用的微服务开发控制面。当前实现面向本地或远程开发环境，使用常驻 daemon 管理 workspace，通过 Docker Compose 创建每个服务的 dev runner 容器，并在容器内执行 build、run、debug、health check。CLI 和 Web UI 都调用 daemon API。
+Onespace 是一个单用户、单机 VM 使用的微服务开发控制面。当前实现面向本地或远程开发环境，使用常驻 daemon 管理 workspace，通过 Docker Compose 创建 dev runner 容器或直接运行镜像型 container service。CLI 和 Web UI 都调用 daemon API。
 
 当前版本支持：
 
 - Go 服务。
 - Java Maven 服务。
+- 镜像即服务的 container service，例如 mock BMC、数据库、本地协议模拟器。
 - 每个服务一个本地 Git 仓库。
 - `git pull --ff-only`。
 - 容器内 build、deploy、restart、debug、stop。
+- container service 的 deploy、restart、stop、logs。
 - HTTP health check。
 - `onespace.yaml` 运行配置契约：env、envFrom、files、secrets、volumes、dependsOn。
 - Config Inspector：通过 API、CLI 和 Web UI 查看配置来源，secret 默认脱敏。
@@ -43,7 +45,7 @@ git --version
 - Docker Engine。
 - Docker Compose v2。
 - Git。
-- 每个服务仓库必须已经存在于本机，并且仓库 remote 信息已经配置好。Onespace 只做状态读取和 `git pull --ff-only`。
+- dev runner 服务仓库必须已经存在于本机，并且仓库 remote 信息已经配置好。Onespace 只做状态读取和 `git pull --ff-only`。container service 不需要本地 Git 仓库。
 
 ## 快速开始
 
@@ -180,6 +182,7 @@ ports:
 
 services:
   user-api:
+    kind: dev-runner
     language: go
     repoPath: repos/user-api
     main: ./cmd/user-api
@@ -193,6 +196,7 @@ services:
       timeoutSeconds: 30
 
   order-api:
+    kind: dev-runner
     language: java-maven
     repoPath: repos/order-api
     ports:
@@ -203,13 +207,48 @@ services:
       type: http
       url: http://127.0.0.1:18082/health
       timeoutSeconds: 30
+
+  bmc-a:
+    kind: container
+    image: metal-forge/mock-ipmi:dev
+    env:
+      MOCK_IPMI_NAME: bmc-a
+      MOCK_IPMI_INITIAL_POWER: "off"
+      MOCK_IPMI_INITIAL_BOOTDEV: disk
+    ports:
+      - name: ipmi
+        container: 623
+        host: 6230
+        protocol: udp
 ```
 
 ### 路径规则
 
 - `allowedRepoRoots` 可以是绝对路径，也可以是相对 workspace root 的路径。
 - `repoPath` 可以是绝对路径，也可以是相对 workspace root 的路径。
-- `repoPath` 必须位于任意一个 `allowedRepoRoots` 下，否则 daemon 启动失败。
+- dev runner 服务的 `repoPath` 必须位于任意一个 `allowedRepoRoots` 下，否则 daemon 启动失败。
+- 只有 container service 的 workspace 可以不配置 `allowedRepoRoots`。
+
+### 服务类型
+
+`services.<name>.kind` 支持：
+
+| kind | 用途 | 必填字段 | 支持操作 |
+| --- | --- | --- | --- |
+| `dev-runner` | Go/Java 代码仓库，容器内 build/run/debug | `language`、`repoPath` | pull、build、deploy、debug、restart、stop、logs |
+| `container` | 镜像本身就是长期运行服务 | `image` | deploy、restart、stop、logs |
+
+`kind` 未配置时默认是 `dev-runner`，保持旧配置兼容。
+
+container service 不注入 `onespace-supervisor`，不挂载 repo，也不会覆盖镜像默认 `CMD`。如果需要覆盖镜像命令，可以配置：
+
+```yaml
+services:
+  bmc-a:
+    kind: container
+    image: metal-forge/mock-ipmi:dev
+    command: python3 /app/server.py
+```
 
 ### 运行配置契约
 
@@ -295,6 +334,16 @@ ports:
   - name: http
     container: 8080
     host: 18081
+```
+
+`protocol` 默认是 `tcp`，需要 UDP 时显式配置：
+
+```yaml
+ports:
+  - name: ipmi
+    container: 623
+    host: 6230
+    protocol: udp
 ```
 
 debug 端口配置在 `services.<name>.debug.port`：
@@ -618,7 +667,7 @@ daemon 为整个 workspace 生成一个 Compose 文件：
 <workspace>/generated/docker-compose.yml
 ```
 
-每个服务对应一个 dev runner 容器：
+dev runner 服务对应一个长期存在的 runner 容器：
 
 - service repo 挂载到容器 `/workspace`。
 - Config Composer 会把 `env`、`envFrom`、`secrets` 合成为 Compose `environment`。
@@ -630,6 +679,16 @@ daemon 为整个 workspace 生成一个 Compose 文件：
 - 业务进程由 `onespace-supervisor` 管理。
 - 业务日志写入容器内 `/workspace/.onespace/service.log`，也就是宿主机服务 repo 的 `.onespace/service.log`。
 
+container service 直接运行镜像：
+
+- Compose 使用服务声明的 `image` 和镜像默认 `CMD`。
+- 配置了 `command` 时会覆盖镜像默认命令。
+- `deploy` 执行 `docker compose up -d <service>`。
+- `restart` 执行 `docker compose restart <service>`。
+- `stop` 执行 `docker compose stop <service>`。
+- `logs` 读取 `docker compose logs --no-log-prefix --tail <n> <service>`。
+- `pull`、`build`、`debug` 对 container service 返回 `unsupported`，因为它不管理代码仓库和语言调试器。
+
 清理容器：
 
 ```bash
@@ -638,7 +697,7 @@ docker compose -f <workspace>/generated/docker-compose.yml down --remove-orphans
 
 ## Git 行为
 
-Onespace 不管理凭据，也不 clone 仓库。服务 repo 必须提前准备好。
+Onespace 不管理凭据，也不 clone 仓库。dev runner 服务 repo 必须提前准备好。container service 不读取 Git 状态，也不会执行 `pull`。
 
 `deploy` 会读取 Git status，用于返回 commit 和 dirty 状态；dirty 不会阻止 deploy，因为 agent 修改代码后通常需要直接 build/run 验证。
 
@@ -675,8 +734,10 @@ onespace config user-api --json
 | `validate` | 服务名不存在或配置错误 |
 | `git-status` | repoPath 不是 Git repo 或 Git 状态读取失败 |
 | `ensure-container` | Compose 文件或 Docker/Compose 调用失败 |
+| `start-container` | container service 的 Compose 启动失败 |
 | `build` | 容器内 build 命令失败 |
 | `start-process` | supervisor 启动业务进程失败 |
+| `unsupported` | 当前操作不适用于该服务类型 |
 | `done` | deploy 完成 |
 | `debug` | debug 启动完成 |
 
@@ -739,7 +800,34 @@ curl -fsS http://127.0.0.1:18080/api/services/user-api/config
 onespace stop user-api
 ```
 
-### 停止并删除 dev runner 容器
+### 运行 mock-ipmi 示例
+
+先在 `metal-forge` 仓库构建镜像：
+
+```bash
+docker build -t metal-forge/mock-ipmi:dev /Users/wnzhone/workspace/metal-forge/mock-ipmi
+```
+
+启动 Onespace daemon：
+
+```bash
+onespace-server serve --config examples/workspaces/mock-ipmi/onespace.yaml
+```
+
+部署并验证：
+
+```bash
+ONESPACE_URL=http://127.0.0.1:18180 onespace deploy bmc-a --wait --json
+ipmitool -I lanplus -C 3 -H 127.0.0.1 -p 6230 -U admin -P password chassis power status
+```
+
+预期 `ipmitool` 返回：
+
+```text
+Chassis Power is off
+```
+
+### 停止并删除 Compose 容器
 
 ```bash
 docker compose -f generated/docker-compose.yml down --remove-orphans
@@ -751,7 +839,7 @@ docker compose -f generated/docker-compose.yml down --remove-orphans
 
 ### daemon 启动失败：`repoPath is not under any allowedRepoRoot`
 
-检查 `repoPath` 是否在 `allowedRepoRoots` 下。相对路径按 `onespace.yaml` 所在目录解析。
+检查 dev runner 服务的 `repoPath` 是否在 `allowedRepoRoots` 下。相对路径按 `onespace.yaml` 所在目录解析。container service 不需要 `repoPath`。
 
 ### daemon 启动失败：env file 或 secret file 不存在
 

@@ -18,6 +18,7 @@ type Client struct {
 
 type ServiceSummary struct {
 	Name     string `json:"name"`
+	Kind     string `json:"kind,omitempty"`
 	Language string `json:"language"`
 	Image    string `json:"image"`
 	Branch   string `json:"branch,omitempty"`
@@ -196,84 +197,20 @@ func (c Client) Health(ctx context.Context, service string) (health.Result, erro
 
 func (c Client) Pull(ctx context.Context, service string) (serviceops.Result, error) {
 	url := fmt.Sprintf("%s/api/services/%s/pull", c.BaseURL, service)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
-	if err != nil {
-		return serviceops.Result{}, err
-	}
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient().Do(req)
-	if err != nil {
-		return serviceops.Result{}, err
-	}
-	defer resp.Body.Close()
-
-	var result serviceops.Result
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return serviceops.Result{}, err
-	}
-	return result, nil
+	return c.postServiceAction(ctx, url)
 }
 
 func (c Client) Build(ctx context.Context, service string) (serviceops.Result, error) {
 	url := fmt.Sprintf("%s/api/services/%s/build", c.BaseURL, service)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
-	if err != nil {
-		return serviceops.Result{}, err
-	}
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient().Do(req)
-	if err != nil {
-		return serviceops.Result{}, err
-	}
-	defer resp.Body.Close()
-
-	var result serviceops.Result
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return serviceops.Result{}, err
-	}
-	return result, nil
+	return c.postServiceAction(ctx, url)
 }
 
 func (c Client) Restart(ctx context.Context, service string) (serviceops.Result, error) {
 	url := fmt.Sprintf("%s/api/services/%s/restart", c.BaseURL, service)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
-	if err != nil {
-		return serviceops.Result{}, err
-	}
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient().Do(req)
-	if err != nil {
-		return serviceops.Result{}, err
-	}
-	defer resp.Body.Close()
-
-	var result serviceops.Result
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return serviceops.Result{}, err
-	}
-	return result, nil
+	return c.postServiceAction(ctx, url)
 }
 
 func (c Client) Stop(ctx context.Context, service string) (serviceops.Result, error) {
 	url := fmt.Sprintf("%s/api/services/%s/stop", c.BaseURL, service)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
-	if err != nil {
-		return serviceops.Result{}, err
-	}
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient().Do(req)
-	if err != nil {
-		return serviceops.Result{}, err
-	}
-	defer resp.Body.Close()
-
-	var result serviceops.Result
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return serviceops.Result{}, err
-	}
-	return result, nil
+	return c.postServiceAction(ctx, url)
 }

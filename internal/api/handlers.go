@@ -7,12 +7,14 @@ import (
 	"strconv"
 
 	"github.com/wnzhone/onespace/internal/appcontract"
+	"github.com/wnzhone/onespace/internal/domain"
 	"github.com/wnzhone/onespace/internal/jobs"
 	"github.com/wnzhone/onespace/internal/logs"
 )
 
 type serviceSummary struct {
 	Name     string `json:"name"`
+	Kind     string `json:"kind,omitempty"`
 	Language string `json:"language"`
 	Image    string `json:"image"`
 	Branch   string `json:"branch,omitempty"`
@@ -35,6 +37,7 @@ func (s *Server) handleGetServices(w http.ResponseWriter, r *http.Request) {
 	for name, svc := range s.Workspace.Services {
 		summary := serviceSummary{
 			Name:     name,
+			Kind:     svc.Kind,
 			Language: svc.Language,
 			Image:    svc.Image,
 		}
@@ -210,6 +213,14 @@ func (s *Server) handleGetServiceLogs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		lines = runnerLines
+	}
+	if len(lines) == 0 && svc.Kind == domain.ServiceKindContainer {
+		runtimeLines, err := s.Ops.ServiceLogs(r.Context(), name, tail)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		lines = runtimeLines
 	}
 	if lines == nil {
 		lines = []string{}

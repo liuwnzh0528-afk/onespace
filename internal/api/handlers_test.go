@@ -20,6 +20,8 @@ import (
 type fakeOps struct {
 	deployResult serviceops.Result
 	deployErr    error
+	logLines     []string
+	logErr       error
 }
 
 func (f *fakeOps) Deploy(_ context.Context, service string) (serviceops.Result, error) {
@@ -39,6 +41,9 @@ func (f *fakeOps) Restart(_ context.Context, service string) (serviceops.Result,
 }
 func (f *fakeOps) Stop(_ context.Context, service string) (serviceops.Result, error) {
 	return f.deployResult, f.deployErr
+}
+func (f *fakeOps) ServiceLogs(_ context.Context, service string, tail int) ([]string, error) {
+	return f.logLines, f.logErr
 }
 
 func newTestServer(t *testing.T) *Server {
@@ -189,6 +194,36 @@ func TestGetServiceLogsFallsBackToRunnerLog(t *testing.T) {
 	}
 	if len(resp.Lines) != 1 || resp.Lines[0] != "runner line 2" {
 		t.Fatalf("lines = %v, want [runner line 2]", resp.Lines)
+	}
+}
+
+func TestGetContainerServiceLogsFallsBackToRuntimeLogs(t *testing.T) {
+	srv := newTestServer(t)
+	svc := srv.Workspace.Services["user-api"]
+	svc.Kind = "container"
+	svc.Language = ""
+	svc.RepoPath = ""
+	svc.Image = "metal-forge/mock-ipmi:dev"
+	delete(srv.Workspace.Services, "user-api")
+	srv.Workspace.Services["bmc-a"] = svc
+	srv.Ops = &fakeOps{logLines: []string{"serving mock IPMI", "power=off"}}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/services/bmc-a/logs?tail=2", nil)
+	w := httptest.NewRecorder()
+	srv.Mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+
+	var resp struct {
+		Lines []string `json:"lines"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if strings.Join(resp.Lines, "|") != "serving mock IPMI|power=off" {
+		t.Fatalf("lines = %v, want runtime container logs", resp.Lines)
 	}
 }
 

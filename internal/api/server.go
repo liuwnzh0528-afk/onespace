@@ -18,6 +18,7 @@ type Operations interface {
 	Build(ctx context.Context, service string) (serviceops.Result, error)
 	Restart(ctx context.Context, service string) (serviceops.Result, error)
 	Stop(ctx context.Context, service string) (serviceops.Result, error)
+	ServiceLogs(ctx context.Context, service string, tail int) ([]string, error)
 }
 
 type Server struct {

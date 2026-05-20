@@ -1,12 +1,13 @@
 # Onespace
 
-Onespace is a single-user local Docker development control plane for running, rebuilding, debugging, configuring, and observing Go and Java microservices on one VM.
+Onespace is a single-user local Docker development control plane for running, rebuilding, debugging, configuring, and observing Go/Java microservices and image-based local services on one VM.
 
 Primary workflows:
 
 - Web UI for service status, logs, jobs, and manual deploy/debug actions.
 - CLI for developers, scripts, and coding agents.
 - Docker Compose dev runners for container-side build/run/debug.
+- Direct container services for image-first tools such as mock BMCs, local databases, or protocol simulators.
 - `onespace.yaml` as a local app contract for env, env files, config files, secret files, volumes, ports, health checks, and dependencies.
 - Config Inspector through API, CLI, and Web UI so humans and agents can see where runtime configuration came from.
 
@@ -47,6 +48,15 @@ services:
         target: /workspace/.cache
     dependsOn:
       - redis
+
+  bmc-a:
+    kind: container
+    image: metal-forge/mock-ipmi:dev
+    ports:
+      - name: ipmi
+        container: 623
+        host: 6230
+        protocol: udp
 ```
 
 See [docs/user-guide.md](docs/user-guide.md) for installation, quick start, workspace configuration, CLI, Web UI, API, and troubleshooting details.

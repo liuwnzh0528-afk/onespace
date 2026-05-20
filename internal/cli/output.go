@@ -44,13 +44,23 @@ func WriteServicesTable(w io.Writer, services []ServiceSummary) error {
 		}
 	}
 
-	fmt.Fprintf(w, "%-*s  %-12s  %s\n", maxName, "NAME", "LANGUAGE", "HEALTH")
+	fmt.Fprintf(w, "%-*s  %-12s  %s\n", maxName, "NAME", "RUNTIME", "HEALTH")
 	fmt.Fprintf(w, "%s  %s  %s\n", strings.Repeat("-", maxName), strings.Repeat("-", 12), strings.Repeat("-", 7))
 
 	for _, s := range services {
-		fmt.Fprintf(w, "%-*s  %-12s  %s\n", maxName, s.Name, s.Language, s.Health)
+		fmt.Fprintf(w, "%-*s  %-12s  %s\n", maxName, s.Name, serviceRuntime(s), s.Health)
 	}
 	return nil
+}
+
+func serviceRuntime(s ServiceSummary) string {
+	if s.Language != "" {
+		return s.Language
+	}
+	if s.Kind != "" {
+		return s.Kind
+	}
+	return "-"
 }
 
 func WriteConfigText(w io.Writer, cfg ServiceConfig) error {
