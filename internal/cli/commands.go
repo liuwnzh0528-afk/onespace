@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/wnzhone/onespace/internal/version"
 )
 
 func Run(args []string, stdout, stderr io.Writer, getenv func(string) string) int {
@@ -52,7 +54,7 @@ func Run(args []string, stdout, stderr io.Writer, getenv func(string) string) in
 }
 
 func runVersion(stdout, stderr io.Writer) int {
-	fmt.Fprintln(stdout, "onespace dev")
+	WriteJSON(stdout, version.Info())
 	return 0
 }
 

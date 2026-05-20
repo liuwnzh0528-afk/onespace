@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/wnzhone/onespace/internal/serviceops"
+	"github.com/wnzhone/onespace/internal/version"
 )
 
 func newTestDaemon(t *testing.T) *httptest.Server {
@@ -79,6 +80,27 @@ func TestDeployWaitJSONPrintsResultAndReturnsZeroOnSuccess(t *testing.T) {
 	}
 	if result.Status != "success" {
 		t.Fatalf("status = %q, want success", result.Status)
+	}
+}
+
+func TestVersionCommandUsesBuildInfo(t *testing.T) {
+	oldVersion := version.Version
+	oldCommit := version.Commit
+	version.Version = "0.0.1"
+	version.Commit = "abc123"
+	t.Cleanup(func() {
+		version.Version = oldVersion
+		version.Commit = oldCommit
+	})
+
+	var stdout, stderr strings.Builder
+	code := Run([]string{"version"}, &stdout, &stderr, func(key string) string { return "" })
+
+	if code != 0 {
+		t.Fatalf("code = %d, want 0; stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"version":"0.0.1"`) || !strings.Contains(stdout.String(), `"commit":"abc123"`) {
+		t.Fatalf("stdout = %s, want build info JSON", stdout.String())
 	}
 }
 
